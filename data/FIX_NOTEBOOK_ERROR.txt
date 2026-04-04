@@ -1,0 +1,90 @@
+================================================================================
+                    QUICK FIX FOR NLTK ERROR
+================================================================================
+
+ERROR: Resource punkt_tab not found
+
+SOLUTION: Run this script FIRST before opening Jupyter notebook
+
+================================================================================
+
+STEP 1: Download NLTK Data
+---------------------------
+Run this command in your terminal:
+
+    python download_nltk_data.py
+
+This will download all required NLTK packages including punkt_tab.
+
+Wait for: "✓✓✓ ALL PACKAGES VERIFIED - READY TO USE! ✓✓✓"
+
+================================================================================
+
+STEP 2: Open Jupyter Notebook
+------------------------------
+After download completes:
+
+    jupyter notebook nlp_preprocessing.ipynb
+
+================================================================================
+
+STEP 3: Restart Kernel
+----------------------
+In Jupyter:
+1. Click: Kernel → Restart
+2. Click: Cell → Run All
+
+No more errors!
+
+================================================================================
+
+ALTERNATIVE FIX (If Above Doesn't Work)
+----------------------------------------
+
+Run this in Command Prompt:
+
+python -c "import nltk; import ssl; ssl._create_default_https_context = ssl._create_unverified_context; nltk.download('punkt'); nltk.download('punkt_tab'); nltk.download('stopwords'); nltk.download('wordnet')"
+
+================================================================================
+
+WHY THIS ERROR HAPPENS
+----------------------
+NLTK updated from version 3.8 to 3.9+
+- Old version used: punkt
+- New version uses: punkt_tab (faster, tabular format)
+
+Our fix downloads BOTH for compatibility.
+
+================================================================================
+
+WHAT THE SCRIPT DOWNLOADS
+--------------------------
+1. punkt              - Old tokenizer
+2. punkt_tab          - New tokenizer (NLTK 3.9+)
+3. stopwords          - Common words filter
+4. wordnet            - Word definitions
+5. omw-1.4            - Multilingual wordnet
+6. averaged_perceptron_tagger      - POS tagging (old)
+7. averaged_perceptron_tagger_eng  - POS tagging (new)
+
+================================================================================
+
+FILES TO USE
+------------
+1. download_nltk_data.py      - Run this FIRST
+2. nlp_preprocessing.ipynb    - Your notebook
+3. NLTK_FIX.md                - Detailed fix guide
+4. NOTEBOOK_GUIDE.md          - Full notebook usage guide
+
+================================================================================
+
+QUICK START
+-----------
+1. Run: python download_nltk_data.py
+2. Wait for: "ALL PACKAGES VERIFIED"
+3. Open: jupyter notebook nlp_preprocessing.ipynb
+4. Run all cells
+
+DONE! No errors!
+
+================================================================================

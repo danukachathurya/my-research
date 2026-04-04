@@ -1,0 +1,2 @@
+model_name,model_type,training_date,n_features,n_training_samples,n_validation_samples,n_test_samples,best_params,validation_f1,test_accuracy,test_precision,test_recall,test_f1,test_roc_auc
+Baseline,RandomForestClassifier,2025-11-19 17:48:18,24,600,200,200,"{'max_depth': 10, 'min_samples_leaf': 15, 'min_samples_split': 10, 'n_estimators': 150}",0.8497109826589595,0.74,0.7386934673366834,1.0,0.8497109826589595,0.5671929149018098

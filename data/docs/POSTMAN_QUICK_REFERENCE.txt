@@ -1,0 +1,211 @@
+================================================================================
+                    POSTMAN TESTING - QUICK REFERENCE
+================================================================================
+
+SETUP (ONE TIME):
+-----------------
+1. Download Postman: https://www.postman.com/downloads/
+2. Install and open Postman
+3. Import collection: File → Import → Select "Vehicle_Chatbot_API.postman_collection.json"
+4. Set base_url variable to: http://localhost:8000
+
+BEFORE TESTING:
+---------------
+1. Start your server:
+   > cd "e:\research\gamage new\data"
+   > start_server_simple.bat
+
+2. Wait for: "Uvicorn running on http://0.0.0.0:8000"
+
+3. Verify server: Open browser → http://localhost:8000
+
+================================================================================
+
+TESTING ORDER:
+--------------
+
+📁 Setup (Test These First)
+   1. Health Check                    GET  /
+   2. Get Supported Vehicles          GET  /api/vehicles
+   3. Get Warning Lights              GET  /api/warning-lights
+
+📁 Conversations (Main Flow)
+   4. Start Conversation              POST /api/conversation/start
+      → IMPORTANT: Copy session_id from response!
+
+   5. Send Message - Known Issue      POST /api/conversation/message
+      Body: {"session_id": "...", "message": "My Aqua won't start"}
+      → Should get solution from database
+
+   6. Send Message - Unknown Issue    POST /api/conversation/message
+      Body: {"session_id": "...", "message": "Weird smell"}
+      → Should trigger diagnostic questions
+
+   7. Answer Diagnostic Question      POST /api/conversation/message
+      Body: {"session_id": "...", "message": "Toyota Vitz"}
+      → Continue answering until advice given
+
+   8. Get Conversation History        GET  /api/conversation/{session_id}
+
+   9. End Conversation                POST /api/conversation/end
+
+📁 Warning Lights (Image Testing)
+   10. Send Message with Image        POST /api/conversation/message
+       → Use base64 encoded image
+
+   11. Upload Image File              POST /api/upload-image
+       → Use form-data file upload
+
+📁 Utilities
+   12. Translate Text                 POST /api/translate
+   13. Submit Feedback                POST /api/feedback
+
+================================================================================
+
+EXAMPLE REQUESTS:
+-----------------
+
+1. START CONVERSATION
+   POST http://localhost:8000/api/conversation/start
+   Body:
+   {
+     "user_id": "test_user_123",
+     "language": "english"
+   }
+
+   Response includes: session_id (SAVE THIS!)
+
+2. SEND MESSAGE
+   POST http://localhost:8000/api/conversation/message
+   Body:
+   {
+     "session_id": "YOUR_SESSION_ID_HERE",
+     "message": "My Toyota Aqua won't start and I hear clicking"
+   }
+
+3. GET VEHICLES
+   GET http://localhost:8000/api/vehicles
+
+================================================================================
+
+COMMON ISSUES:
+--------------
+
+❌ "Could not send request"
+   → Server not running! Run: start_server_simple.bat
+
+❌ 404 Not Found
+   → Check URL is correct: http://localhost:8000
+   → Check endpoint path matches API
+
+❌ 422 Validation Error
+   → Missing required field in request body
+   → Check Content-Type header is "application/json"
+
+❌ 500 Server Error
+   → Check server console for error details
+   → May need to restart server
+
+================================================================================
+
+QUICK TIPS:
+-----------
+
+✓ Use {{session_id}} variable instead of copying/pasting
+✓ Add Tests tab to auto-save session_id
+✓ Use Collection Runner to test all at once
+✓ Enable Postman Console (bottom-left) to see full requests
+✓ Save responses as Examples for reference
+
+AUTO-SAVE SESSION ID:
+---------------------
+In "Start Conversation" request → Tests tab, add:
+
+var response = pm.response.json();
+if (response.session_id) {
+    pm.collectionVariables.set("session_id", response.session_id);
+}
+
+Now {{session_id}} auto-populates in all requests!
+
+================================================================================
+
+FULL CONVERSATION TEST:
+-----------------------
+
+1. Click "Setup" folder → "Health Check" → Send
+   ✓ Should return status: "online"
+
+2. Click "Conversations" folder → "Start Conversation" → Send
+   ✓ Copy session_id from response
+
+3. Edit "Send Message - Known Issue"
+   → Replace session_id with yours → Send
+   ✓ Should get diagnostic advice
+
+4. Edit "End Conversation"
+   → Replace session_id → Send
+   ✓ Should close conversation
+
+================================================================================
+
+TESTING WITH IMAGES:
+--------------------
+
+Option 1: Base64 (Request #10)
+   1. Convert image to base64: https://base64.guru/converter/encode/image
+   2. Copy base64 string
+   3. Paste in "image_base64" field
+   4. Send request
+
+Option 2: File Upload (Request #11)
+   1. Select "form-data" in Body
+   2. Key: "file" (change type to File)
+   3. Click "Select Files"
+   4. Choose dashboard image
+   5. Send request
+
+================================================================================
+
+EXPECTED RESPONSES:
+-------------------
+
+✓ Known Issue:
+  {
+    "success": true,
+    "status": "success",
+    "source": "knowledge_base",
+    "confidence": 0.89,
+    "message": "I found a match...",
+    "vehicle": "Aqua"
+  }
+
+✓ Unknown Issue (Fallback):
+  {
+    "success": true,
+    "status": "fallback_mode",
+    "question": {
+      "question_text": "What is your car model?",
+      "options": ["Toyota Aqua", "Toyota Prius", ...]
+    }
+  }
+
+✓ Warning Light Detected:
+  {
+    "success": true,
+    "status": "lights_detected",
+    "detected_lights": [{
+      "name_en": "Check Engine Light",
+      "detected_color": "yellow"
+    }]
+  }
+
+================================================================================
+
+DOCUMENTATION:
+--------------
+Full Guide: POSTMAN_TESTING_GUIDE.md
+Server Setup: START_HERE.md
+API Docs (when server running): http://localhost:8000/docs
+
+================================================================================

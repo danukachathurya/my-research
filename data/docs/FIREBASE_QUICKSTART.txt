@@ -1,0 +1,132 @@
+================================================================================
+                    FIREBASE SETUP - QUICK REFERENCE
+================================================================================
+
+STEP-BY-STEP CHECKLIST:
+-----------------------
+
+[ ] 1. CREATE FIREBASE PROJECT
+    - Go to: https://console.firebase.google.com
+    - Click "Add project"
+    - Name: vehicle-chatbot-sl
+    - Click "Create Project"
+
+[ ] 2. SETUP FIRESTORE DATABASE
+    - Click "Firestore Database" in left menu
+    - Click "Create database"
+    - Choose "Production mode"
+    - Location: asia-south1 (Mumbai) or asia-southeast1 (Singapore)
+    - Click "Enable"
+
+[ ] 3. SETUP STORAGE
+    - Click "Storage" in left menu
+    - Click "Get started"
+    - Start in test mode
+    - Same location as Firestore
+    - Click "Done"
+
+[ ] 4. ENABLE AUTHENTICATION
+    - Click "Authentication" in left menu
+    - Click "Get started"
+    - Go to "Sign-in method" tab
+    - Enable "Anonymous"
+    - Click "Save"
+
+[ ] 5. DOWNLOAD CREDENTIALS
+    - Click gear icon (⚙️) → "Project settings"
+    - Go to "Service accounts" tab
+    - Click "Generate new private key"
+    - Click "Generate key"
+    - Save as: firebase-credentials.json
+    - Move to: e:\research\gamage new\data\
+
+[ ] 6. INSTALL FIREBASE ADMIN
+    - Open Command Prompt
+    - Run: pip install firebase-admin
+
+[ ] 7. UPDATE API SERVER
+    - Open: api_server.py
+    - Find line with 'storageBucket'
+    - Replace with: vehicle-chatbot-sl.appspot.com
+    - Save file
+
+[ ] 8. TEST CONNECTION
+    - Run: python test_firebase.py
+    - Should see: "ALL FIREBASE TESTS PASSED!"
+
+[ ] 9. START SERVER
+    - Run: python api_server.py
+    - Should see: "Firebase initialized"
+
+================================================================================
+
+IMPORTANT FILES:
+----------------
+1. firebase-credentials.json  - Your credentials (KEEP SECRET!)
+2. api_server.py             - Backend server
+3. test_firebase.py          - Test script
+
+IMPORTANT URLS:
+---------------
+Firebase Console: https://console.firebase.google.com
+Your Project: https://console.firebase.google.com/project/vehicle-chatbot-sl
+
+FIRESTORE COLLECTIONS TO CREATE:
+---------------------------------
+- users
+- conversations
+- warning_light_scans
+- feedback
+- usage_analytics
+
+STORAGE FOLDERS TO CREATE:
+---------------------------
+- dashboard_images/
+- voice_recordings/
+
+QUICK COMMANDS:
+---------------
+# Test Firebase
+python test_firebase.py
+
+# Start server with Firebase
+python api_server.py
+
+# Install Firebase SDK
+pip install firebase-admin
+
+TROUBLESHOOTING:
+----------------
+Error: "Credentials not found"
+  → Make sure firebase-credentials.json is in the data folder
+
+Error: "Storage bucket not found"
+  → Update bucket name in api_server.py to match your project
+
+Error: "Permission denied"
+  → Check Firestore security rules in Firebase Console
+
+Error: "Module not found"
+  → Run: pip install firebase-admin
+
+NEED HELP?
+----------
+Read the complete guide:
+  → FIREBASE_SETUP_GUIDE.md
+
+Or check:
+  → COMPLETE_SETUP_GUIDE.md (Section 3)
+
+================================================================================
+                          READY TO START!
+================================================================================
+
+1. Complete all checklist items above
+2. Run: python test_firebase.py
+3. If all tests pass, run: python api_server.py
+4. Your chatbot backend is now using Firebase!
+
+For detailed instructions with screenshots and explanations:
+  → Open FIREBASE_SETUP_GUIDE.md
+
+================================================================================

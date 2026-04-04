@@ -1,0 +1,31 @@
+towing_id,name,city,latitude,longitude,phone,base_fee_lkr,rate_per_km_lkr,max_distance_km,available_24h,avg_eta_minutes,rating,num_reviews,vehicle_types,flatbed_available
+TOW001,Colombo Express Towing,Colombo,6.9271,79.8612,+94712345678,2500,120,50,1,20,4.2,87,car;suv;van,1
+TOW002,Metro Tow Services,Colombo,6.9020,79.8600,+94714567890,3000,100,40,1,25,4.5,142,car;suv,1
+TOW003,Lanka Rescue Towing,Dehiwala,6.8514,79.8664,+94718765432,2000,130,35,0,30,3.9,45,car;motorcycle,0
+TOW004,24H Road Assist Colombo,Colombo,6.9344,79.8509,+94776543210,3500,110,60,1,18,4.7,203,car;suv;van;truck,1
+TOW005,Nugegoda Towing Co,Nugegoda,6.8720,79.8862,+94721234567,2200,125,30,0,35,4.0,62,car;suv,0
+TOW006,Moratuwa Auto Rescue,Moratuwa,6.7736,79.8813,+94734567890,1800,140,25,0,40,3.7,28,car,0
+TOW007,Southern Lanka Towing,Galle,6.0535,80.2210,+94912345678,2000,115,45,1,25,4.3,95,car;suv;van,1
+TOW008,Galle Road Recovery,Galle,6.0329,80.2168,+94914567890,1800,130,35,0,35,3.8,41,car,0
+TOW009,Kandy Mountain Tow,Kandy,7.2906,80.6337,+94812345678,2800,150,40,1,30,4.4,78,car;suv,1
+TOW010,Peradeniya Auto Assist,Kandy,7.2655,80.5956,+94814567890,2500,145,35,0,45,4.1,53,car;suv;motorcycle,1
+TOW011,Negombo Coast Towing,Negombo,7.2096,79.8379,+94312345678,2200,120,40,1,22,4.6,117,car;suv;van,1
+TOW012,Katunayake Road Help,Negombo,7.1696,79.8912,+94314567890,2000,110,30,0,28,3.9,36,car;motorcycle,0
+TOW013,Kurunegala Tow Masters,Kurunegala,7.4867,80.3647,+94372345678,1800,100,35,0,40,4.0,44,car;suv,0
+TOW014,North Western Recovery,Kurunegala,7.4650,80.3498,+94374567890,2000,110,45,1,35,4.2,67,car;suv;van,1
+TOW015,Matara Southern Tow,Matara,5.9549,80.5550,+94412345678,1700,125,30,0,38,3.8,31,car,0
+TOW016,Matara Express Rescue,Matara,5.9478,80.5361,+94414567890,2000,130,40,1,30,4.4,82,car;suv;motorcycle,0
+TOW017,Batticaloa East Towing,Batticaloa,7.7170,81.6924,+94652345678,1800,110,35,0,45,3.9,22,car;suv,0
+TOW018,Trinco Bay Recovery,Trincomalee,8.5874,81.2152,+94262345678,2000,115,40,0,50,4.0,19,car;van,0
+TOW019,Ratnapura Road Rescue,Ratnapura,6.6828,80.3992,+94452345678,2000,140,30,0,40,4.1,38,car;suv,0
+TOW020,Avissawella Tow Help,Avissawella,6.9523,80.2113,+94362345678,1900,130,35,0,35,3.9,27,car,0
+TOW021,Pettah Auto Rescue,Colombo,6.9394,79.8528,+94711234567,3200,115,45,1,22,4.3,94,car;suv;van,1
+TOW022,Bambalapitiya Towing,Colombo,6.8942,79.8554,+94713456789,2800,120,40,1,20,4.5,109,car;suv,1
+TOW023,Wellawatte Recovery,Colombo,6.8741,79.8633,+94715678901,2600,125,35,0,28,4.2,73,car;motorcycle,0
+TOW024,Mount Lavinia Tow,Colombo,6.8335,79.8648,+94717890123,2300,130,30,0,32,4.0,51,car;suv,0
+TOW025,Piliyandala Road Assist,Piliyandala,6.8057,79.9208,+94719012345,2000,135,30,0,38,3.8,29,car,0
+TOW026,Kottawa Quick Tow,Kottawa,6.8196,79.9600,+94701234567,1900,128,28,0,42,3.9,34,car;motorcycle,0
+TOW027,Homagama Express Tow,Homagama,6.8434,80.0017,+94703456789,1800,122,25,0,45,3.7,21,car,0
+TOW028,Maharagama Rescue Co,Maharagama,6.8478,79.9277,+94705678901,2100,118,32,1,30,4.1,58,car;suv,0
+TOW029,Kelaniya Fast Tow,Kelaniya,7.0030,79.9203,+94707890123,2400,112,38,1,25,4.3,81,car;suv;van,1
+TOW030,Gampaha Road Recovery,Gampaha,7.0890,80.0029,+94709012345,2200,108,35,1,28,4.2,66,car;suv,1

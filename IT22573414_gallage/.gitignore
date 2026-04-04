@@ -1,0 +1,88 @@
+# =============================================================================
+# CREDENTIALS & SECRETS — never commit these
+# =============================================================================
+.env
+firebase_service_account.json
+
+# =============================================================================
+# PYTHON
+# =============================================================================
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# =============================================================================
+# ML MODEL ARTIFACTS — large binary files, store separately (e.g. cloud storage)
+# =============================================================================
+models/*.pth
+models/*.pkl
+# Keep the cache and label files (small, text-based, safe to commit)
+!models/damage_labels.json
+!models/gemini_price_cache.json
+
+# =============================================================================
+# JUPYTER
+# =============================================================================
+.ipynb_checkpoints/
+
+# =============================================================================
+# macOS
+# =============================================================================
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# =============================================================================
+# IDE
+# =============================================================================
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# =============================================================================
+# FLUTTER / DART
+# =============================================================================
+vehicle_damage_app/build/
+vehicle_damage_app/.dart_tool/
+vehicle_damage_app/.flutter-plugins
+vehicle_damage_app/.flutter-plugins-dependencies
+vehicle_damage_app/android/.gradle/
+vehicle_damage_app/.env
+# Keep the env example so new devs know what's needed
+!vehicle_damage_app/.env.example
+
+# =============================================================================
+# LOGS & TEMP
+# =============================================================================
+*.log
+*.tmp
+venv/
+__pycache__/
+*.pyc
+node_modules/
+.env
+*.pt
+*.h5
+# Secrets
+*.json
+.env
+firebase-credentials.json
+data/config/
+# Secrets
+*.json
+.env
+firebase-credentials.json
+data/config/
+
+# Gradle cache
+gradle-user-home/
+**/gradle-user-home/
+
+# Flutter / Android build
+build/
+.android/
+.gradle/

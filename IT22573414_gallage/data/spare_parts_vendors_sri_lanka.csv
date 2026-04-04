@@ -1,0 +1,21 @@
+vendor_id,name,city,latitude,longitude,phone,rating,num_reviews,lead_time_days,brands_stocked,warranty_months,accepts_returns
+VND001,AutoParts Colombo,Colombo,6.9271,79.8612,+94711234567,4.5,210,1,Toyota;Honda;Suzuki;Nissan,12,1
+VND002,Lanka Spare Parts Hub,Nugegoda,6.8720,79.8862,+94713456789,4.1,89,2,Toyota;Nissan;Mitsubishi,6,0
+VND003,Kandy Auto Spares,Kandy,7.2906,80.6337,+94752345678,3.8,56,3,Toyota;Honda;Hyundai;Mitsubishi,12,1
+VND004,Negombo Parts Center,Negombo,7.2096,79.8379,+94312345678,4.3,134,1,Toyota;Suzuki;Honda,12,1
+VND005,Galle Motor Spares,Galle,6.0535,80.2210,+94912345678,4.0,77,2,Toyota;Nissan;Ford,6,1
+VND006,Pettah Auto Bazaar,Colombo,6.9394,79.8528,+94715678901,3.9,102,1,Toyota;Honda;Suzuki;Hyundai;Nissan,3,0
+VND007,Moratuwa Spare Parts,Moratuwa,6.7736,79.8813,+94717890123,4.2,68,2,Toyota;Honda;Mitsubishi,12,1
+VND008,Dehiwala Auto Store,Dehiwala,6.8514,79.8664,+94719012345,3.7,43,3,Toyota;Suzuki,6,0
+VND009,Kurunegala Parts Depot,Kurunegala,7.4867,80.3647,+94372345678,4.0,51,3,Toyota;Honda;Nissan,12,1
+VND010,Matara Vehicle Parts,Matara,5.9549,80.5550,+94412345678,3.8,38,4,Toyota;Suzuki;Honda,6,0
+VND011,Wellawatte Motor Parts,Colombo,6.8741,79.8633,+94701234567,4.4,158,1,Toyota;BMW;Mercedes;Honda,24,1
+VND012,Kelaniya Auto Spares,Kelaniya,7.0030,79.9203,+94703456789,4.1,72,2,Toyota;Honda;Suzuki;Nissan,12,1
+VND013,Gampaha Parts House,Gampaha,7.0890,80.0029,+94705678901,3.9,48,3,Toyota;Honda;Mitsubishi,6,1
+VND014,Ratnapura Spare Parts,Ratnapura,6.6828,80.3992,+94452345678,3.6,29,4,Toyota;Suzuki,6,0
+VND015,Piliyandala Auto Parts,Piliyandala,6.8057,79.9208,+94707890123,4.0,64,2,Toyota;Honda;Nissan;Hyundai,12,1
+VND016,Maharagama Parts Plus,Maharagama,6.8478,79.9277,+94709012345,4.2,91,1,Toyota;Honda;Suzuki,12,1
+VND017,Homagama Auto Depot,Homagama,6.8434,80.0017,+94711111111,3.8,36,3,Toyota;Mitsubishi;Suzuki,6,0
+VND018,Mount Lavinia Spares,Colombo,6.8335,79.8648,+94712222222,4.3,115,2,Toyota;Honda;BMW;Nissan,18,1
+VND019,Bambalapitiya Parts Co,Colombo,6.8942,79.8554,+94713333333,4.6,187,1,Toyota;Honda;Suzuki;Hyundai;Nissan;Mitsubishi,12,1
+VND020,Kottawa Motor Spares,Kottawa,6.8196,79.9600,+94714444444,3.9,44,3,Toyota;Honda;Suzuki,6,1
