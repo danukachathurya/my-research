@@ -887,15 +887,6 @@ class _VehicleDamageAssessPageState extends State<VehicleDamageAssessPage> {
                             priceEstimation['currency'],
                             priceEstimation['breakdown']['parts'],
                           ),
-                        if (priceEstimation['breakdown']['labor'] != null)
-                          _costRow(
-                            Icons.engineering,
-                            Colors.green[700]!,
-                            Colors.green[50]!,
-                            'Labor',
-                            priceEstimation['currency'],
-                            priceEstimation['breakdown']['labor'],
-                          ),
                         if (priceEstimation['breakdown']['paint'] != null)
                           _costRow(
                             Icons.format_paint,

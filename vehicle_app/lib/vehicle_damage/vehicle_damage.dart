@@ -1210,42 +1210,6 @@ class _HomePageState extends State<HomePage> {
                               ],
                             ),
                           ),
-                        // Labor Cost
-                        if (priceEstimation['breakdown']['labor'] != null)
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.green[50],
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                Row(
-                                  children: [
-                                    Icon(Icons.engineering,
-                                        size: 20, color: Colors.green[700]),
-                                    const SizedBox(width: 8),
-                                    const Text(
-                                      'Labor',
-                                      style: TextStyle(fontSize: 14),
-                                    ),
-                                  ],
-                                ),
-                                Text(
-                                  '${priceEstimation['currency']} ${priceEstimation['breakdown']['labor'].toStringAsFixed(2)}',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
                         // Paint Cost
                         if (priceEstimation['breakdown']['paint'] != null)
                           Container(

@@ -7,13 +7,11 @@ Integrated with Firebase for user authentication and assessment history
 import os
 import io
 import re
-import csv
 import json
 import hashlib
 import firebase_admin
 import torch
 import joblib
-import numpy as np
 import uuid
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -31,6 +29,18 @@ from google.api_core.exceptions import ServiceUnavailable as FirestoreServiceUna
 
 import torch.nn as nn
 from torchvision import transforms, models
+
+from pricing_fallback import (
+    PARTS_PRICE_INFLATION_FACTOR,
+    LocalPriceFallbackEngine,
+    SparePartsLookup as SharedSparePartsLookup,
+    build_no_damage_price_result,
+    build_formula_price_result,
+    enrich_price_result_for_claims,
+    exclude_labor_from_price_result,
+    infer_affected_part,
+    PRICING_POLICY_VERSION,
+)
 
 # Authentication removed - running without Firebase
 
@@ -68,11 +78,6 @@ class Config:
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 config = Config()
-
-# Spare-parts CSV data was collected ~2022. Sri Lanka has experienced significant currency
-# depreciation and import-cost inflation since then. This factor adjusts reference prices
-# to approximate current (2026) market rates. Revisit annually.
-PARTS_PRICE_INFLATION_FACTOR = 1.45
 
 FIREBASE_CRED_PATH = os.getenv("FIREBASE_CRED_PATH", "firebase_service_account.json")
 
@@ -116,6 +121,55 @@ db = get_db()
 def compute_image_hash(image_bytes: bytes) -> str:
     return hashlib.sha256(image_bytes).hexdigest()
 
+
+def infer_reported_affected_part(
+    default_affected_part: str,
+    price_result: Optional[dict],
+) -> str:
+    if not price_result:
+        return default_affected_part
+
+    resolved_affected_part = str(price_result.get("resolved_affected_part") or "").strip()
+    if resolved_affected_part:
+        return resolved_affected_part
+
+    severity_summary = price_result.get("severity_summary")
+    if not isinstance(severity_summary, list):
+        return default_affected_part
+
+    detected_parts = []
+    for item in severity_summary:
+        if not isinstance(item, dict):
+            continue
+        part_name = str(item.get("part") or "").strip().lower()
+        if part_name:
+            detected_parts.append(part_name)
+
+    if not detected_parts:
+        return default_affected_part
+
+    combined_parts = " ".join(detected_parts)
+    if "tail light" in combined_parts:
+        if any(keyword in combined_parts for keyword in ("rear bumper", "rear fender", "rear door", "quarter panel")):
+            return "rear_corner"
+        return "tail_light"
+    if "headlight" in combined_parts:
+        if any(keyword in combined_parts for keyword in ("front bumper", "fender", "bonnet", "hood", "grille")):
+            return "front_corner"
+        return "headlight"
+    if "rear bumper" in combined_parts:
+        return "rear_corner"
+    if "front bumper" in combined_parts or "bumper" in combined_parts:
+        return "bumper"
+    if "windshield" in combined_parts:
+        return "windshield"
+    if "wheel" in combined_parts or "tire" in combined_parts:
+        return "tire"
+    if any(keyword in combined_parts for keyword in ("door", "fender", "quarter panel", "body panel", "bonnet", "hood")):
+        return "body_panel"
+
+    return default_affected_part
+
 # ============================================
 # DAMAGE DETECTION MODEL
 # ============================================
@@ -136,128 +190,7 @@ class DamageDetectionModel(nn.Module):
     def forward(self, x):
         return self.backbone(x)
 
-# ============================================
-# PART MAPPING
-# ============================================
-
-def map_damage_to_part(detected_damages: List[str]) -> str:
-    """Map detected damages to vehicle parts"""
-    part_mapping = {
-        'dent': 'body_panel',
-        'scratch': 'body_panel',
-        'crack': 'bumper',
-        'glass_shatter': 'windshield',
-        'glass shatter': 'windshield',
-        'lamp_broken': 'headlight',
-        'lamp broken': 'headlight',
-        'tire_flat': 'tire',
-        'tire flat': 'tire',
-    }
-    
-    parts = set()
-    for damage in detected_damages:
-        damage_lower = damage.lower().replace('_', ' ')
-        part = part_mapping.get(damage_lower, 'body_panel')
-        parts.add(part)
-    
-    return list(parts)[0] if parts else 'body_panel'
-
-# ============================================
-# SPARE PARTS PRICE LOOKUP
-# ============================================
-
-# Maps each damage type to the spare parts likely needed for repair/replacement
-DAMAGE_TO_PARTS = {
-    'dent': ['Fender (LH)', 'Fender (RH)', 'Front Door (LH)', 'Front Door (RH)',
-             'Rear Door (LH)', 'Rear Door (RH)', 'Hood/Bonnet'],
-    'scratch': ['Fender (LH)', 'Fender (RH)', 'Front Bumper', 'Front Door (LH)',
-                'Front Door (RH)', 'Hood/Bonnet'],
-    'crack': ['Front Bumper', 'Front Windshield'],
-    'glass shatter': ['Front Windshield'],
-    'lamp broken': ['Headlight (LH)', 'Headlight (RH)', 'Tail Light (LH)', 'Tail Light (RH)'],
-    'tire flat': ['Alloy Wheel (Single)'],
-}
-
-
-class SparePartsLookup:
-    """Loads the spare parts CSV and provides price lookups by brand/model/year."""
-
-    def __init__(self):
-        self.data: List[Dict] = []  # raw rows
-        self.models: set = set()     # known (brand, model) pairs
-
-    def load(self, csv_path: Path):
-        if not csv_path.exists():
-            print(f"⚠️  Spare parts CSV not found: {csv_path}")
-            return
-        with open(csv_path, newline='', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                price_str = row.get('Price_LKR (Indicative)', '').strip()
-                if not price_str:
-                    continue
-                try:
-                    price = float(price_str)
-                except ValueError:
-                    continue
-                brand = row['Brand'].strip().lower()
-                model = row['Model'].strip().lower()
-                year = int(row['Year'])
-                part = row['Part_Name'].strip()
-                self.data.append({
-                    'brand': brand, 'model': model, 'year': year,
-                    'part': part, 'price': price,
-                })
-                self.models.add((brand, model))
-        print(f"✅ Loaded {len(self.data)} spare parts prices ({len(self.models)} model variants)")
-
-    def is_supported_brand(self, brand: str) -> bool:
-        return any(b == brand.strip().lower() for b, _ in self.models)
-
-    def lookup(self, brand: str, model: str, year: int, damages: List[str]) -> List[Dict]:
-        """Return relevant parts with real prices for the given vehicle + damages."""
-        brand_l = brand.strip().lower()
-        model_l = model.strip().lower()
-
-        # Collect part names relevant to the detected damages
-        relevant_part_names = set()
-        for dmg in damages:
-            for part_name in DAMAGE_TO_PARTS.get(dmg.lower(), []):
-                relevant_part_names.add(part_name)
-
-        if not relevant_part_names:
-            return []
-
-        # Find rows matching brand + model
-        candidates = [r for r in self.data
-                      if r['brand'] == brand_l and r['model'] == model_l]
-
-        if not candidates:
-            # Try brand-only match (any model) as rough reference
-            candidates = [r for r in self.data if r['brand'] == brand_l]
-
-        if not candidates:
-            return []
-
-        # Pick the closest year for each relevant part
-        results = []
-        for part_name in relevant_part_names:
-            part_rows = [r for r in candidates if r['part'] == part_name]
-            if not part_rows:
-                continue
-            # Closest year
-            best = min(part_rows, key=lambda r: abs(r['year'] - year))
-            results.append({
-                'part': best['part'],
-                'price_lkr': best['price'],
-                'reference_year': best['year'],
-            })
-
-        return results
-
-
-spare_parts = SparePartsLookup()
-
+spare_parts = SharedSparePartsLookup()
 # ============================================
 # GEMINI AI CLASSES
 # ============================================
@@ -416,6 +349,7 @@ class PriceExplanationAI:
 
                 TASK:
                 Return a realistic repair cost estimate (LKR) with a clear breakdown: parts, labor, paint.
+                Labor charges must be excluded from this estimate, so labor must always be 0.
                 You must decide whether each visible damaged item is most likely to be:
                 - repair (panel beating / plastic welding / polishing)
                 - replace (new / recondition / aftermarket)
@@ -443,7 +377,8 @@ class PriceExplanationAI:
                 - Do not include airbags/suspension/frame repairs unless clearly visible or strongly implied by misalignment/impact signs.
 
                 5) Be consistent:
-                - estimated_price MUST equal parts + labor + paint
+                - estimated_price MUST equal parts + paint
+                - labor MUST be 0
                 - Values must be integers (no decimals)
 
                 ### IMAGE-BASED DAMAGE ANALYSIS REQUIREMENTS:
@@ -509,7 +444,7 @@ class PriceExplanationAI:
                 "explanation": "<2-3 sentences describing the major cost drivers and why repair/replace was chosen>"
                 }}
 
-                Return ONLY JSON. Ensure parts + labor + paint = estimated_price.
+                Return ONLY JSON. Ensure parts + paint = estimated_price and labor = 0.
                 """
 
             generation_config = {
@@ -545,6 +480,10 @@ class PriceExplanationAI:
                         'estimated_price': estimated_price,
                         'breakdown': result.get('breakdown', {}),
                         'explanation': result.get('explanation', ''),
+                        'severity_summary': result.get('severity_summary', []),
+                        'confidence_score': result.get('confidence_score'),
+                        'assumptions': result.get('assumptions', []),
+                        'recommended_photos': result.get('recommended_photos', []),
                         'method': 'gemini_ai'
                     }
                 else:
@@ -595,6 +534,7 @@ class ModelLoader:
         self.damage_model = None
         self.price_model = None
         self.price_scaler = None
+        self.price_fallback = None
         self.idx_to_class = None
         self.num_classes = None
         self.damage_ai = None
@@ -624,6 +564,205 @@ class ModelLoader:
         except Exception as e:
             print(f"⚠️  Failed to save Gemini price cache: {e}")
         
+    def estimate_price_locally(
+        self,
+        vehicle_brand: str,
+        vehicle_model: str,
+        vehicle_year: int,
+        detected_damages: List[str],
+        reference_prices: List[Dict],
+        affected_part: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> dict:
+        if self.price_fallback is not None:
+            local_result = self.price_fallback.estimate(
+                vehicle_brand=vehicle_brand,
+                vehicle_model=vehicle_model,
+                vehicle_year=vehicle_year,
+                detected_damages=detected_damages,
+                reference_prices=reference_prices,
+                affected_part=affected_part,
+                reason=reason,
+            )
+            if local_result is not None:
+                return local_result
+
+        return build_formula_price_result(
+            detected_damages=detected_damages,
+            reference_prices=reference_prices,
+            reason=reason,
+        )
+
+    def build_price_cache_key(
+        self,
+        image_hash: str,
+        vehicle_brand: str,
+        vehicle_model: str,
+        vehicle_year: int,
+    ) -> str:
+        request_fingerprint = {
+            "image_sha256": image_hash,
+            "vehicle_brand": vehicle_brand.strip().lower(),
+            "vehicle_model": vehicle_model.strip().lower(),
+            "vehicle_year": vehicle_year,
+        }
+        return hashlib.sha256(
+            json.dumps(request_fingerprint, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+    def estimate_price_for_assessment(
+        self,
+        image_hash: str,
+        vehicle_brand: str,
+        vehicle_model: str,
+        vehicle_year: int,
+        detected_damages: List[str],
+        affected_part: str,
+        image: Image.Image,
+        use_ai: bool,
+    ) -> dict:
+        reference_prices = spare_parts.lookup(
+            vehicle_brand,
+            vehicle_model,
+            vehicle_year,
+            detected_damages,
+            affected_part=affected_part,
+        )
+
+        if not detected_damages:
+            return {
+                "price_result": enrich_price_result_for_claims(
+                    build_no_damage_price_result(),
+                    reference_prices=reference_prices,
+                    detected_damages=detected_damages,
+                    affected_part=affected_part,
+                ),
+                "reference_prices": reference_prices,
+                "reported_affected_part": affected_part,
+            }
+
+        fallback_reason = None
+
+        if use_ai:
+            cache_key = self.build_price_cache_key(
+                image_hash=image_hash,
+                vehicle_brand=vehicle_brand,
+                vehicle_model=vehicle_model,
+                vehicle_year=vehicle_year,
+            )
+            cached_price_result = self.price_cache.get(cache_key)
+            if (
+                cached_price_result is not None
+                and cached_price_result.get("estimated_price") is not None
+            ):
+                cached_result = enrich_price_result_for_claims(
+                    exclude_labor_from_price_result(cached_price_result),
+                    reference_prices=reference_prices,
+                    detected_damages=detected_damages,
+                    affected_part=affected_part,
+                )
+                cached_result["method"] = "gemini_ai_cached"
+                return {
+                    "price_result": cached_result,
+                    "reference_prices": reference_prices,
+                    "reported_affected_part": infer_reported_affected_part(
+                        affected_part,
+                        cached_result,
+                    ),
+                }
+
+            if self.price_ai is not None:
+                gemini_result = self.price_ai.estimate_price(
+                    detected_damages,
+                    vehicle_brand,
+                    vehicle_model,
+                    vehicle_year,
+                    affected_part,
+                    image,
+                    reference_prices=reference_prices,
+                )
+                if gemini_result.get("estimated_price") is not None:
+                    gemini_result = enrich_price_result_for_claims(
+                        exclude_labor_from_price_result(gemini_result),
+                        reference_prices=reference_prices,
+                        detected_damages=detected_damages,
+                        affected_part=affected_part,
+                    )
+                    self.price_cache[cache_key] = gemini_result
+                    self.save_price_cache()
+                    return {
+                        "price_result": gemini_result,
+                        "reference_prices": reference_prices,
+                        "reported_affected_part": infer_reported_affected_part(
+                            affected_part,
+                            gemini_result,
+                        ),
+                    }
+
+                fallback_reason = gemini_result.get("explanation")
+            else:
+                fallback_reason = "Gemini AI price model is not available."
+        else:
+            fallback_reason = "Gemini pricing disabled for this assessment request."
+
+        local_result = self.estimate_price_locally(
+            vehicle_brand=vehicle_brand,
+            vehicle_model=vehicle_model,
+            vehicle_year=vehicle_year,
+            detected_damages=detected_damages,
+            reference_prices=reference_prices,
+            affected_part=affected_part,
+            reason=fallback_reason,
+        )
+        return {
+            "price_result": enrich_price_result_for_claims(
+                exclude_labor_from_price_result(local_result),
+                reference_prices=reference_prices,
+                detected_damages=detected_damages,
+                affected_part=affected_part,
+            ),
+            "reference_prices": reference_prices,
+            "reported_affected_part": infer_reported_affected_part(
+                affected_part,
+                local_result,
+            ),
+        }
+
+    def build_ai_validation_payload(
+        self,
+        image: Image.Image,
+        detected_damages: List[str],
+        estimated_price: float,
+        price_method: str,
+        price_explanation_text: Optional[str],
+    ) -> dict:
+        damage_validation = self.damage_ai.validate_damage(image, detected_damages)
+        if str(damage_validation.get("analysis", "")).lower().startswith("error:"):
+            damage_validation = {
+                "analysis": "AI validation unavailable.",
+                "confidence_score": "N/A",
+            }
+
+        if price_explanation_text:
+            price_explanation = {"explanation": price_explanation_text}
+        elif price_method in {"gemini_ai", "gemini_ai_cached"} and self.price_ai is not None:
+            price_explanation = self.price_ai.explain_price(
+                detected_damages,
+                estimated_price,
+            )
+        else:
+            price_explanation = {
+                "explanation": "Repair cost was estimated using the local fallback pricing flow."
+            }
+
+        if str(price_explanation.get("explanation", "")).lower().startswith("error:"):
+            price_explanation = {"explanation": "Price explanation unavailable."}
+
+        return {
+            "damage_validation": damage_validation,
+            "price_explanation": price_explanation,
+        }
+
     def load_all(self):
         """Load all models"""
         print("\n" + "="*80)
@@ -659,6 +798,8 @@ class ModelLoader:
         try:
             self.price_model = joblib.load(config.PRICE_MODEL_PATH)
             self.price_scaler = joblib.load(config.PRICE_SCALER_PATH)
+            if hasattr(self.price_model, "set_params"):
+                self.price_model.set_params(n_jobs=1, verbose=0)
             print("✅ Price model loaded")
         except Exception as e:
             print(f"⚠️  Price model failed to load: {e}")
@@ -693,6 +834,14 @@ class ModelLoader:
         # Load spare parts reference prices
         print("\n📊 Loading spare parts prices...")
         spare_parts.load(config.SPARE_PARTS_CSV_PATH)
+        if self.price_model is not None and self.price_scaler is not None:
+            self.price_fallback = LocalPriceFallbackEngine(
+                self.price_model,
+                self.price_scaler,
+            )
+            self.price_fallback.load(config.SPARE_PARTS_CSV_PATH)
+        else:
+            self.price_fallback = None
 
         # Load persistent Gemini price cache
         self.load_price_cache()
@@ -837,7 +986,7 @@ async def assess_damage(
         pil_image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
 
         # Vehicle presence check — reject non-vehicle images early
-        if model_loader.damage_ai is not None:
+        if use_ai and model_loader.damage_ai is not None:
             vehicle_check = model_loader.damage_ai.check_is_vehicle(pil_image)
             if not vehicle_check.get("is_vehicle", True):
                 detected_obj = vehicle_check.get("detected_object", "a non-vehicle object")
@@ -866,74 +1015,30 @@ async def assess_damage(
                 confidences[damage_name] = float(prob)
         
         # Part mapping
-        affected_part = map_damage_to_part(detected_damages)
+        affected_part = infer_affected_part(detected_damages)
 
         # Deterministic cache key: image content + vehicle identity only.
         # Damages and affected_part are deliberately excluded — they are derived
         # from the image, so including them would cause cache misses if ResNet18
         # ever produces a slightly different result for the same image.
-        # Same image + same vehicle => same price, always.
-        request_fingerprint = {
-            "image_sha256": img_hash,
-            "vehicle_brand": vehicle_brand.strip().lower(),
-            "vehicle_model": vehicle_model.strip().lower(),
-            "vehicle_year": vehicle_year,
-        }
-        cache_key = hashlib.sha256(
-            json.dumps(request_fingerprint, sort_keys=True).encode("utf-8")
-        ).hexdigest()
-
-        # Gemini-only price estimation
-        if not use_ai:
-            raise HTTPException(
-                status_code=400,
-                detail="Gemini AI pricing is required. Set use_ai=true."
-            )
-        if model_loader.price_ai is None:
-            raise HTTPException(
-                status_code=503,
-                detail="Gemini AI price model is not available."
-            )
-
-        estimated_price = None
-        price_method = 'gemini_ai'
-        price_breakdown = None
-        price_explanation_text = None
-
-        # Look up real spare parts prices for this vehicle + damages
-        reference_prices = spare_parts.lookup(
-            vehicle_brand, vehicle_model, vehicle_year, detected_damages
+        # Price estimation: Gemini first, then local fallback(s).
+        pricing_context = model_loader.estimate_price_for_assessment(
+            image_hash=img_hash,
+            vehicle_brand=vehicle_brand,
+            vehicle_model=vehicle_model,
+            vehicle_year=vehicle_year,
+            detected_damages=detected_damages,
+            affected_part=affected_part,
+            image=pil_image,
+            use_ai=use_ai,
         )
-
-        cached_price_result = model_loader.price_cache.get(cache_key)
-        if cached_price_result is not None:
-            price_result = cached_price_result
-            price_method = 'gemini_ai_cached'
-        else:
-            price_result = model_loader.price_ai.estimate_price(
-                detected_damages,
-                vehicle_brand,
-                vehicle_model,
-                vehicle_year,
-                affected_part,
-                pil_image,
-                reference_prices=reference_prices,
-            )
-            if price_result.get('estimated_price') is not None:
-                model_loader.price_cache[cache_key] = price_result
-                model_loader.save_price_cache()
-
-        estimated_price = price_result.get('estimated_price')
-        price_breakdown = price_result.get('breakdown')
-        price_explanation_text = price_result.get('explanation')
-        if price_method != 'gemini_ai_cached':
-            price_method = price_result.get('method', 'gemini_ai')
-
-        if estimated_price is None:
-            raise HTTPException(
-                status_code=502,
-                detail=f"Gemini price estimation failed: {price_result.get('explanation', 'No price returned')}"
-            )
+        price_result = pricing_context["price_result"]
+        reference_prices = pricing_context["reference_prices"]
+        reported_affected_part = pricing_context.get("reported_affected_part", affected_part)
+        estimated_price = price_result.get("estimated_price", 0.0)
+        price_method = price_result.get("method", "formula_fallback")
+        price_breakdown = price_result.get("breakdown") or {}
+        price_explanation_text = price_result.get("explanation")
         
         # Build response
         response = {
@@ -950,7 +1055,8 @@ async def assess_damage(
                 "threshold": config.DAMAGE_THRESHOLD
             },
             "part_mapping": {
-                "affected_part": affected_part,
+                "affected_part": reported_affected_part,
+                "raw_affected_part": affected_part,
                 "mapped_from": detected_damages
             },
             "price_estimation": {
@@ -962,25 +1068,43 @@ async def assess_damage(
             }
         }
 
+        if price_result.get("severity_summary"):
+            response["price_estimation"]["severity_summary"] = price_result["severity_summary"]
+        if price_result.get("confidence_score") is not None:
+            response["price_estimation"]["confidence_score"] = price_result["confidence_score"]
+        if price_result.get("recommended_photos"):
+            response["price_estimation"]["recommended_photos"] = price_result["recommended_photos"]
+        if price_result.get("assumptions"):
+            response["price_estimation"]["assumptions"] = price_result["assumptions"]
+        if price_result.get("scope"):
+            response["price_estimation"]["scope"] = price_result["scope"]
+        response["price_estimation"]["estimate_range"] = price_result.get("estimate_range", {})
+        response["price_estimation"]["pricing_confidence"] = price_result.get(
+            "pricing_confidence",
+            {},
+        )
+        response["price_estimation"]["reference_quality"] = price_result.get(
+            "reference_quality",
+            {},
+        )
+        response["price_estimation"]["review_flags"] = price_result.get(
+            "review_flags",
+            [],
+        )
+        response["price_estimation"]["pricing_policy"] = price_result.get(
+            "pricing_policy",
+            {},
+        )
+
         # AI validation (optional)
         if use_ai and model_loader.damage_ai is not None:
-            damage_validation = model_loader.damage_ai.validate_damage(
-                pil_image, detected_damages
+            response["ai_validation"] = model_loader.build_ai_validation_payload(
+                image=pil_image,
+                detected_damages=detected_damages,
+                estimated_price=estimated_price,
+                price_method=price_method,
+                price_explanation_text=price_explanation_text,
             )
-
-            # Use the price explanation from Gemini estimation if available
-            if price_explanation_text:
-                price_explanation = {'explanation': price_explanation_text}
-            else:
-                # Otherwise generate a separate explanation
-                price_explanation = model_loader.price_ai.explain_price(
-                    detected_damages, estimated_price
-                )
-
-            response["ai_validation"] = {
-                "damage_validation": damage_validation,
-                "price_explanation": price_explanation
-            }
         
         # Calculate processing time
         processing_time = (datetime.now() - start_time).total_seconds()
@@ -1045,7 +1169,12 @@ async def models_info():
         },
         "price_model": {
             "type": "RandomForest",
-            "loaded": model_loader.price_model is not None
+            "loaded": model_loader.price_model is not None,
+            "fallback_ready": (
+                model_loader.price_fallback is not None
+                and model_loader.price_fallback.ready
+            ),
+            "pricing_policy_version": PRICING_POLICY_VERSION,
         },
         "gemini_ai": {
             "available": model_loader.damage_ai is not None,

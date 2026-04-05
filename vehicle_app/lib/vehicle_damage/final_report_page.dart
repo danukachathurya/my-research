@@ -281,15 +281,6 @@ class FinalReportPage extends StatelessWidget {
                       value:
                           '$_currency ${_fmt(_breakdown['parts'] as num)}',
                     ),
-                  if (_breakdown['labor'] != null)
-                    _CostRow(
-                      icon: Icons.engineering,
-                      iconColor: Colors.green[700]!,
-                      bgColor: Colors.green[50]!,
-                      label: 'Labor',
-                      value:
-                          '$_currency ${_fmt(_breakdown['labor'] as num)}',
-                    ),
                   if (_breakdown['paint'] != null)
                     _CostRow(
                       icon: Icons.format_paint,

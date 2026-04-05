@@ -623,15 +623,6 @@ class _ClaimDetailSheet extends StatelessWidget {
                                   value:
                                       '$currency ${(breakdown['parts'] as num).toStringAsFixed(2)}',
                                 ),
-                              if (breakdown['labor'] != null)
-                                _BreakdownRow(
-                                  icon: Icons.engineering,
-                                  iconColor: Colors.green[700]!,
-                                  bgColor: Colors.green[50]!,
-                                  label: 'Labor',
-                                  value:
-                                      '$currency ${(breakdown['labor'] as num).toStringAsFixed(2)}',
-                                ),
                               if (breakdown['paint'] != null)
                                 _BreakdownRow(
                                   icon: Icons.format_paint,

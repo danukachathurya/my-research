@@ -91,6 +91,93 @@ Future<Map<String, dynamic>> processDamageAssessment(
   return compute(_processDamageAssessmentIsolate, request.toJson());
 }
 
+double _toDouble(dynamic value) {
+  if (value is num) {
+    return value.toDouble();
+  }
+  return double.tryParse(value?.toString() ?? '') ?? 0.0;
+}
+
+Map<String, dynamic> _asStringKeyedMap(dynamic value) {
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  return <String, dynamic>{};
+}
+
+List<String> _asStringList(dynamic value) {
+  if (value is List) {
+    return value.map((item) => item.toString()).toList();
+  }
+  return <String>[];
+}
+
+Map<String, dynamic> _mergeAssessmentResults(
+  Map<String, dynamic> currentResult,
+  Map<String, dynamic> newResult,
+) {
+  final currentDamageDetection =
+      _asStringKeyedMap(currentResult['damage_detection']);
+  final newDamageDetection = _asStringKeyedMap(newResult['damage_detection']);
+
+  final mergedDamages =
+      _asStringList(currentDamageDetection['detected_damages']);
+  final mergedConfidences =
+      _asStringKeyedMap(currentDamageDetection['confidences']);
+
+  for (final damage in _asStringList(newDamageDetection['detected_damages'])) {
+    if (!mergedDamages.contains(damage)) {
+      mergedDamages.add(damage);
+    }
+
+    final currentConfidence = _toDouble(mergedConfidences[damage]);
+    final newConfidence =
+        _toDouble(_asStringKeyedMap(newDamageDetection['confidences'])[damage]);
+    if (newConfidence > currentConfidence) {
+      mergedConfidences[damage] = newConfidence;
+    }
+  }
+
+  currentDamageDetection['detected_damages'] = mergedDamages;
+  currentDamageDetection['confidences'] = mergedConfidences;
+  currentDamageDetection['num_damages'] = mergedDamages.length;
+  currentResult['damage_detection'] = currentDamageDetection;
+
+  final currentPartMapping = _asStringKeyedMap(currentResult['part_mapping']);
+  final newPartMapping = _asStringKeyedMap(newResult['part_mapping']);
+  final currentAffectedPart =
+      (currentPartMapping['affected_part'] ?? '').toString();
+  final newAffectedPart = (newPartMapping['affected_part'] ?? '').toString();
+
+  final currentPriceEstimation =
+      _asStringKeyedMap(currentResult['price_estimation']);
+  final newPriceEstimation = _asStringKeyedMap(newResult['price_estimation']);
+  final currentEstimatedPrice =
+      _toDouble(currentPriceEstimation['estimated_price']);
+  final newEstimatedPrice = _toDouble(newPriceEstimation['estimated_price']);
+
+  if (newEstimatedPrice > currentEstimatedPrice) {
+    currentResult['price_estimation'] = newPriceEstimation;
+    if (newResult['ai_validation'] != null) {
+      currentResult['ai_validation'] = newResult['ai_validation'];
+    }
+    if (newPartMapping.isNotEmpty) {
+      currentResult['part_mapping'] = newPartMapping;
+    }
+  }
+
+  final mergedPartMapping = _asStringKeyedMap(currentResult['part_mapping']);
+  if (currentAffectedPart.isNotEmpty &&
+      newAffectedPart.isNotEmpty &&
+      currentAffectedPart != newAffectedPart) {
+    mergedPartMapping['affected_part'] = 'multiple_areas';
+  }
+  mergedPartMapping['mapped_from'] = mergedDamages;
+  currentResult['part_mapping'] = mergedPartMapping;
+
+  return currentResult;
+}
+
 /// Background isolate function for damage assessment
 Future<Map<String, dynamic>> _processDamageAssessmentIsolate(
   Map<String, dynamic> params,
@@ -129,34 +216,7 @@ Future<Map<String, dynamic>> _processDamageAssessmentIsolate(
       if (i == 0) {
         combinedResult = result;
       } else {
-        // Combine damages from subsequent images
-        var damages = result['damage_detection']['detected_damages'] as List;
-        var confidences = result['damage_detection']['confidences'] as Map;
-        var newPrice = result['price_estimation']['estimated_price'];
-
-        // Track if we added any new damages
-        bool addedNewDamages = false;
-
-        for (var damage in damages) {
-          if (!combinedResult['damage_detection']['detected_damages']
-              .contains(damage)) {
-            combinedResult['damage_detection']['detected_damages'].add(damage);
-            combinedResult['damage_detection']['confidences'][damage] =
-                confidences[damage];
-            addedNewDamages = true;
-          }
-        }
-
-        // Update affected part if different (keep the first one or combine if needed)
-        // Since affected_part is a string, we just keep the primary one from first image
-        // mapped_from contains the list of damages, not parts
-
-        // Sum up the price from backend instead of recalculating
-        // Only add if we found new damages to avoid double counting
-        if (addedNewDamages && newPrice != null) {
-          var currentPrice = combinedResult['price_estimation']['estimated_price'] ?? 0;
-          combinedResult['price_estimation']['estimated_price'] = currentPrice + newPrice;
-        }
+        combinedResult = _mergeAssessmentResults(combinedResult, result);
       }
     } else {
       String errorMessage = 'Assessment failed for image ${i + 1}: ${response.statusCode}';
@@ -174,6 +234,13 @@ Future<Map<String, dynamic>> _processDamageAssessmentIsolate(
       }
       throw Exception(errorMessage);
     }
+  }
+
+  if (imagePaths.length > 1 && combinedResult.isNotEmpty) {
+    final priceEstimation = _asStringKeyedMap(combinedResult['price_estimation']);
+    priceEstimation['aggregation_method'] = 'highest_single_view';
+    priceEstimation['images_considered'] = imagePaths.length;
+    combinedResult['price_estimation'] = priceEstimation;
   }
 
   return combinedResult;
