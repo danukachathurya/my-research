@@ -878,6 +878,7 @@ app.add_middleware(
 
 class AssessmentResponse(BaseModel):
     claim_id: Optional[str] = None
+    status: Optional[str] = None
     assessment_id: Optional[str] = None
     image_hash: Optional[str] = None
     timestamp: str
@@ -1144,6 +1145,7 @@ async def assess_damage(
 
         result_dict = ai_response_dict
         result_dict["claim_id"] = claim_id
+        result_dict["status"] = claim_payload["status"]
         return result_dict
 
     except HTTPException:

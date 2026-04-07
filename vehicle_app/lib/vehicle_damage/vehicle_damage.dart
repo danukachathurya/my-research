@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../common/api_config.dart';
+import '../common/claim_status.dart';
 import 'package:http/http.dart' as http;
 import 'package:geolocator/geolocator.dart';
 import 'dart:convert';
@@ -95,7 +96,7 @@ class RoleSelectionPage extends StatelessWidget {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'AI-powered insurance claims',
+                          'Insurance claims',
                           style: TextStyle(
                             color: Colors.white.withOpacity(0.75),
                             fontSize: 14,
@@ -1416,7 +1417,11 @@ class _HomePageState extends State<HomePage> {
                     child: Text(
                       claimStatus == 'sent_to_insurer'
                           ? 'Sent to insurer'
-                          : claimStatus.replaceAll('_', ' '),
+                          : presentClaimStatusLabel(
+                              claimStatus,
+                              hasClaimRecord:
+                                  claimId != null && claimId.isNotEmpty,
+                            ),
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         color: claimStatus == 'sent_to_insurer'

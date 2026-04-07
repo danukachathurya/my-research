@@ -224,7 +224,7 @@ class _DashboardPageState extends State<DashboardPage> {
                           icon: Icons.car_crash_rounded,
                           label: 'Damage\nAssessment',
                           description:
-                              'AI-powered damage & repair cost estimation',
+                              'Damage & repair cost estimation',
                           gradientColors: const [
                             Color(0xFFEF5350),
                             Color(0xFFC62828),

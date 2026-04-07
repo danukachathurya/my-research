@@ -13,6 +13,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:convert';
 import 'dart:io';
 import '../common/api_config.dart';
+import '../common/claim_status.dart';
 import 'utils/image_processor.dart'; // ← moved to vehicle_damage/utils/
 import 'insurer_dashboard_page.dart'; // ← moved to vehicle_damage/
 
@@ -1077,7 +1078,11 @@ class _VehicleDamageAssessPageState extends State<VehicleDamageAssessPage> {
                     child: Text(
                       claimStatus == 'sent_to_insurer'
                           ? 'Sent to insurer'
-                          : claimStatus.replaceAll('_', ' '),
+                          : presentClaimStatusLabel(
+                              claimStatus,
+                              hasClaimRecord:
+                                  claimId != null && claimId.isNotEmpty,
+                            ),
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         color: claimStatus == 'sent_to_insurer'

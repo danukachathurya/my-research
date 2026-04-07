@@ -18,12 +18,17 @@ class InvalidImageException implements Exception {
 }
 
 class DamageDetectionService {
-  String get baseUrl => ApiConfig.roadResqBaseUrl;
+  String get roadResqBaseUrl => ApiConfig.roadResqBaseUrl;
+  String get claimsBaseUrl => ApiConfig.baseUrl;
 
   Future<http.Response> _postImage(
     File imageFile,
+    String baseUrl,
     String path, {
-    bool includeAssessFields = false,
+    String? vehicleBrand,
+    String? vehicleModel,
+    String? vehicleYear,
+    bool useAi = true,
   }) async {
     final uri = Uri.parse('$baseUrl$path');
     final request = http.MultipartRequest('POST', uri);
@@ -49,11 +54,16 @@ class DamageDetectionService {
       ),
     );
 
-    if (includeAssessFields) {
-      request.fields['vehicle_brand'] = 'Toyota';
-      request.fields['vehicle_model'] = 'Corolla';
-      request.fields['vehicle_year'] = '2020';
-      request.fields['use_ai'] = 'true';
+    if (vehicleBrand != null &&
+        vehicleModel != null &&
+        vehicleYear != null &&
+        vehicleBrand.trim().isNotEmpty &&
+        vehicleModel.trim().isNotEmpty &&
+        vehicleYear.trim().isNotEmpty) {
+      request.fields['vehicle_brand'] = vehicleBrand.trim();
+      request.fields['vehicle_model'] = vehicleModel.trim();
+      request.fields['vehicle_year'] = vehicleYear.trim();
+      request.fields['use_ai'] = useAi ? 'true' : 'false';
     }
 
     final streamedResponse = await request.send();
@@ -70,90 +80,73 @@ class DamageDetectionService {
     return 'HTTP $statusCode: ${body.isEmpty ? 'Unknown server error' : body}';
   }
 
-  DamageDetectionResult _parseDamageResult(Map<String, dynamic> jsonData) {
-    if (jsonData.containsKey('damage_type')) {
-      return DamageDetectionResult.fromJson(jsonData);
-    }
-
-    final detection = (jsonData['damage_detection'] as Map?) ?? {};
-    final rawDamages = (detection['detected_damages'] as List?) ?? const [];
-    final detectedDamages = rawDamages.map((e) => e.toString()).toList();
-
-    final rawConfidences = (detection['confidences'] as Map?) ?? {};
-    final probabilities = <String, double>{};
-    for (final entry in rawConfidences.entries) {
-      probabilities[entry.key.toString()] =
-          (entry.value as num?)?.toDouble() ?? 0.0;
-    }
-
-    final confidence = probabilities.values.isEmpty
-        ? 0.0
-        : probabilities.values.reduce((a, b) => a > b ? a : b);
-
-    final analysis = ((jsonData['ai_validation'] as Map?)?['damage_validation']
-                as Map?)?['analysis']
-            ?.toString() ??
-        'Damage assessment generated from backend response.';
-
-    return DamageDetectionResult(
-      damageType: detectedDamages.isNotEmpty
-          ? detectedDamages.first
-          : 'unknown_damage',
-      severityScore: detectedDamages.length,
-      confidence: confidence,
-      probabilities: probabilities,
-      detectedDamages: detectedDamages,
-      damageDetails: DamageDetails(
-        description: analysis,
-        whatHappened: 'See detected damages list.',
-        immediateActions: const [
-          'Capture clear images and inspect vehicle safely.',
-        ],
-        repairOptions: const [
-          'Visit recommended garage for detailed inspection.',
-        ],
-        urgency: detectedDamages.isEmpty ? 'low' : 'medium',
-        estimatedTime: 'To be confirmed by garage',
-        preventionTips: 'Drive carefully and maintain safe distance.',
-      ),
-    );
-  }
-
   /// Detect damage from an image file.
   /// Supports both RoadResQ (/detect-damage) and vehicle module (/assess) APIs.
-  Future<DamageDetectionResult?> detectDamage(File imageFile) async {
+  Future<DamageDetectionResult?> detectDamage(
+    File imageFile, {
+    required String vehicleBrand,
+    required String vehicleModel,
+    required String vehicleYear,
+    bool useAi = true,
+  }) async {
     try {
       final candidates = <Map<String, dynamic>>[
-        {'path': '/detect-damage', 'assessFields': false},
-        {'path': '/detect-damage/', 'assessFields': false},
-        {'path': '/assess', 'assessFields': true},
-        {'path': '/assess/', 'assessFields': true},
+        {
+          'baseUrl': claimsBaseUrl,
+          'path': '/assess',
+          'vehicleFields': true,
+        },
+        {
+          'baseUrl': claimsBaseUrl,
+          'path': '/assess/',
+          'vehicleFields': true,
+        },
+        {
+          'baseUrl': roadResqBaseUrl,
+          'path': '/detect-damage',
+          'vehicleFields': false,
+        },
+        {
+          'baseUrl': roadResqBaseUrl,
+          'path': '/detect-damage/',
+          'vehicleFields': false,
+        },
       ];
 
       String? lastError;
       for (final candidate in candidates) {
+        final baseUrl = candidate['baseUrl'] as String;
         final path = candidate['path'] as String;
-        final includeAssessFields = candidate['assessFields'] as bool;
+        final includeVehicleFields = candidate['vehicleFields'] as bool;
 
         final response = await _postImage(
           imageFile,
+          baseUrl,
           path,
-          includeAssessFields: includeAssessFields,
+          vehicleBrand: includeVehicleFields ? vehicleBrand : null,
+          vehicleModel: includeVehicleFields ? vehicleModel : null,
+          vehicleYear: includeVehicleFields ? vehicleYear : null,
+          useAi: useAi,
         );
 
         if (response.statusCode == 404) {
-          lastError = 'Endpoint not found at $path';
+          lastError = 'Endpoint not found at $baseUrl$path';
           continue;
         }
 
         if (response.statusCode == 200) {
           final jsonData = json.decode(response.body) as Map<String, dynamic>;
-          return _parseDamageResult(jsonData);
+          return DamageDetectionResult.fromJson(jsonData);
         }
 
         if (response.statusCode == 400) {
           final detail = _extractErrorDetail(response.body, response.statusCode);
           throw InvalidImageException(detail);
+        }
+
+        if (response.statusCode == 422) {
+          lastError = _extractErrorDetail(response.body, response.statusCode);
+          continue;
         }
 
         lastError = _extractErrorDetail(response.body, response.statusCode);
@@ -172,9 +165,13 @@ class DamageDetectionService {
   /// Check if the API server is reachable and has at least one relevant endpoint.
   Future<bool> checkServerConnection() async {
     try {
-      final paths = ['/', '/detect-damage', '/assess'];
-      for (final path in paths) {
-        final uri = Uri.parse('$baseUrl$path');
+      final endpoints = <String>[
+        '$claimsBaseUrl/assess',
+        '$roadResqBaseUrl/detect-damage',
+        '$roadResqBaseUrl/',
+      ];
+      for (final endpoint in endpoints) {
+        final uri = Uri.parse(endpoint);
         final response = await http.get(uri).timeout(const Duration(seconds: 5));
         if (response.statusCode < 500 && response.statusCode != 404) {
           return true;
@@ -194,7 +191,7 @@ class DamageDetectionService {
     double? longitude,
   }) async {
     try {
-      final uri = Uri.parse('$baseUrl/complete-assessment');
+      final uri = Uri.parse('$roadResqBaseUrl/complete-assessment');
 
       final request = http.MultipartRequest('POST', uri);
 
@@ -258,7 +255,7 @@ class DamageDetectionService {
       String? usedPath;
 
       for (final path in candidatePaths) {
-        final uri = Uri.parse('$baseUrl$path');
+        final uri = Uri.parse('$roadResqBaseUrl$path');
         final currentResponse = await http.post(
           uri,
           headers: {'Content-Type': 'application/x-www-form-urlencoded'},

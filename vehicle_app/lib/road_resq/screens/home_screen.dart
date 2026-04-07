@@ -41,6 +41,9 @@ class _HomeScreenState extends State<HomeScreen> {
   final DamageDetectionService _service = DamageDetectionService();
   final LocationService _locationService = LocationService();
   final ImagePicker _picker = ImagePicker();
+  final TextEditingController _brandController = TextEditingController();
+  final TextEditingController _modelController = TextEditingController();
+  final TextEditingController _yearController = TextEditingController();
 
   File? _selectedImage;
   bool _isLoading = false;
@@ -57,6 +60,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _checkServerConnection();
+  }
+
+  @override
+  void dispose() {
+    _brandController.dispose();
+    _modelController.dispose();
+    _yearController.dispose();
+    super.dispose();
   }
 
   Future<void> _checkServerConnection() async {
@@ -213,12 +224,19 @@ class _HomeScreenState extends State<HomeScreen> {
   // ───────────────────────────────────────────────────────
 
   Future<void> _analyzeImage() async {
-    if (_selectedImage == null || _latitude == null) return;
+    if (_selectedImage == null || _latitude == null || !_hasVehicleDetails) {
+      return;
+    }
 
     setState(() => _isLoading = true);
 
     try {
-      final result = await _service.detectDamage(_selectedImage!);
+      final result = await _service.detectDamage(
+        _selectedImage!,
+        vehicleBrand: _brandController.text,
+        vehicleModel: _modelController.text,
+        vehicleYear: _yearController.text,
+      );
       setState(() => _isLoading = false);
 
       if (result != null) {
@@ -232,6 +250,9 @@ class _HomeScreenState extends State<HomeScreen> {
               latitude: _latitude!,
               longitude: _longitude!,
               locationLabel: _locationLabel,
+              vehicleBrand: _brandController.text.trim(),
+              vehicleModel: _modelController.text.trim(),
+              vehicleYear: _yearController.text.trim(),
             ),
           ),
         );
@@ -292,14 +313,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Determine what the Analyze button should say based on missing prerequisites.
   String get _analyzeButtonLabel {
-    if (_latitude == null && _selectedImage == null) return 'Set Location & Photo First';
+    if (_latitude == null && _selectedImage == null && !_hasVehicleDetails) {
+      return 'Set Location, Photo, and Vehicle Details';
+    }
     if (_latitude == null) return 'Set Location First';
     if (_selectedImage == null) return 'Select a Photo First';
+    if (!_isVehicleYearValid) return 'Enter a Valid Vehicle Year';
+    if (!_hasVehicleDetails) return 'Enter Vehicle Details First';
     return 'Analyze Damage';
   }
 
+  bool get _isVehicleYearValid {
+    final year = int.tryParse(_yearController.text.trim());
+    final currentYear = DateTime.now().year;
+    return year != null && year >= 1980 && year <= currentYear + 1;
+  }
+
+  bool get _hasVehicleDetails =>
+      _brandController.text.trim().isNotEmpty &&
+      _modelController.text.trim().isNotEmpty &&
+      _yearController.text.trim().isNotEmpty &&
+      _isVehicleYearValid;
+
   bool get _canAnalyze =>
-      _selectedImage != null && _latitude != null && _serverConnected && !_isLoading;
+      _selectedImage != null &&
+      _latitude != null &&
+      _hasVehicleDetails &&
+      _serverConnected &&
+      !_isLoading;
 
   @override
   Widget build(BuildContext context) {
@@ -356,7 +397,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: 6),
                     const Text(
-                      'Set your location, then upload a photo of the damage',
+                      'Set your location, add vehicle details, then upload a damage photo',
                       style: TextStyle(fontSize: 14, color: Colors.grey),
                       textAlign: TextAlign.center,
                     ),
@@ -370,6 +411,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     // ── Image Card ───────────────────────────────────
                     _buildImageCard(),
+
+                    const SizedBox(height: 20),
+
+                    _buildVehicleDetailsCard(),
 
                     const SizedBox(height: 24),
 
@@ -680,7 +725,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Make sure the API server is running on port 8000.',
+                  'Make sure the claims API and the RoadResQ API are running.',
                   style: TextStyle(fontSize: 12),
                 ),
                 const SizedBox(height: 4),
@@ -697,6 +742,74 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildVehicleDetailsCard() {
+    return Card(
+      elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.directions_car,
+                  color: _hasVehicleDetails ? Colors.green : Colors.grey,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Vehicle Details',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: _hasVehicleDetails ? Colors.black87 : Colors.grey[700],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: _brandController,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Brand',
+                hintText: 'e.g. Toyota',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _modelController,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Model',
+                hintText: 'e.g. Corolla',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _yearController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: 'Year',
+                hintText: 'e.g. 2017',
+                border: const OutlineInputBorder(),
+                errorText: _yearController.text.isEmpty || _isVehicleYearValid
+                    ? null
+                    : 'Enter a year between 1980 and ${DateTime.now().year + 1}',
+              ),
+              onChanged: (_) => setState(() {}),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -726,9 +839,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           SizedBox(height: 10),
           _StepRow(step: '1', text: 'Set your location via GPS or city picker'),
-          _StepRow(step: '2', text: 'Take or select a photo of the damage'),
-          _StepRow(step: '3', text: 'Tap "Analyze Damage" for AI-powered assessment'),
-          _StepRow(step: '4', text: 'Find nearby garages, towing & spare parts bids'),
+          _StepRow(step: '2', text: 'Enter vehicle brand, model, and year'),
+          _StepRow(step: '3', text: 'Take or select a photo of the damage'),
+          _StepRow(step: '4', text: 'Analyze for damage, price estimate, and roadside next steps'),
         ],
       ),
     );
