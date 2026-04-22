@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../common/claim_status.dart';
 import '../../common/insurance_claim_service.dart';
 import '../models/damage_detection_result.dart';
 import '../models/garage_recommendation.dart';
@@ -45,6 +46,53 @@ class _ResultScreenState extends State<ResultScreen> {
   bool _loadingGarages = false;
   bool _sendingToInsurer = false;
   String? _claimStatusOverride;
+
+  String? get _claimId {
+    final claimId = widget.result.claimId?.trim();
+    if (claimId == null || claimId.isEmpty) {
+      return null;
+    }
+    return claimId;
+  }
+
+  String? get _effectiveClaimStatus {
+    final override = _claimStatusOverride?.trim();
+    if (override != null && override.isNotEmpty) {
+      return override;
+    }
+
+    final initialStatus = widget.result.status?.trim();
+    if (initialStatus != null && initialStatus.isNotEmpty) {
+      return initialStatus;
+    }
+
+    return widget.result.hasClaimRecord ? 'ai_generated' : null;
+  }
+
+  bool get _claimAlreadySentToInsurer =>
+      isClaimSentToInsurer(_effectiveClaimStatus);
+
+  String get _claimStatusLabel => presentClaimStatusLabel(
+    _effectiveClaimStatus,
+    hasClaimRecord: widget.result.hasClaimRecord,
+  );
+
+  Color get _claimStatusColor {
+    if (_claimAlreadySentToInsurer) {
+      return Colors.green;
+    }
+    return Colors.lightBlue;
+  }
+
+  Color get _claimStatusTextColor {
+    if (_claimAlreadySentToInsurer) {
+      return Colors.green.shade700;
+    }
+    return Colors.lightBlue.shade700;
+  }
+
+  bool get _canNotifyInsurer =>
+      _claimId != null && !_claimAlreadySentToInsurer && !_sendingToInsurer;
 
   String get _vehicleBrand =>
       widget.result.vehicle?.brand.trim().isNotEmpty == true
@@ -133,8 +181,8 @@ class _ResultScreenState extends State<ResultScreen> {
   }
 
   Future<void> _notifyInsurer() async {
-    final claimId = widget.result.claimId;
-    if (claimId == null || claimId.isEmpty) {
+    final claimId = _claimId;
+    if (claimId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No claim ID found. Please assess damage first.'),
@@ -503,6 +551,72 @@ class _ResultScreenState extends State<ResultScreen> {
     );
   }
 
+  Widget _buildInsuranceSection() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Insurance',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Claim ID: $_claimId',
+              style: const TextStyle(fontSize: 16, color: Colors.black87),
+            ),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              decoration: BoxDecoration(
+                color: _claimStatusColor.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                _claimStatusLabel,
+                style: TextStyle(
+                  color: _claimStatusTextColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: _canNotifyInsurer ? _notifyInsurer : null,
+                icon: _sendingToInsurer
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.send, size: 20),
+                label: Text(
+                  _claimAlreadySentToInsurer
+                      ? 'Insurance Company Notified'
+                      : 'Notify Insurance Company',
+                ),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 15),
+                  foregroundColor: Colors.blueGrey[700],
+                  side: BorderSide(color: Colors.blueGrey.withOpacity(0.18)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(28),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -533,6 +647,10 @@ class _ResultScreenState extends State<ResultScreen> {
                       pricing: widget.result.priceEstimation!,
                       damageType: widget.result.displayDamageType,
                     ),
+                    const SizedBox(height: 16),
+                  ],
+                  if (widget.result.hasClaimRecord) ...[
+                    _buildInsuranceSection(),
                     const SizedBox(height: 16),
                   ],
 
