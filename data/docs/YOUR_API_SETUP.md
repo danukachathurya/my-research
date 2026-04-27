@@ -2,7 +2,7 @@
 
 ## ✅ Setup Confirmation
 
-**API Key:** `AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks`
+**API Key:** `AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo`
 **Model:** `gemini-2.5-flash`
 **Status:** ✅ **WORKING**
 
@@ -23,7 +23,7 @@ This will automatically set your API key and start the server!
 
 ```cmd
 cd "e:\research\gamage new\data"
-set GEMINI_API_KEY=AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks
+set GEMINI_API_KEY=AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo
 python api_server.py
 ```
 
@@ -34,7 +34,7 @@ python api_server.py
 2. Click "Environment Variables"
 3. Under "User variables", click "New"
 4. Variable name: `GEMINI_API_KEY`
-5. Variable value: `AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks`
+5. Variable value: `AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo`
 6. Click OK
 
 Then just run:
@@ -168,7 +168,7 @@ Make sure the environment variable is set:
 ```cmd
 echo %GEMINI_API_KEY%
 ```
-Should output: `AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks`
+Should output: `AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo`
 
 ### Issue: "Port 8000 in use"
 ```cmd
@@ -219,7 +219,7 @@ from chatbot_core import VehicleChatbot
 
 # Initialize
 chatbot = VehicleChatbot(
-    gemini_api_key='AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks',
+    gemini_api_key='AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo',
     main_dataset_path='sri_lanka_vehicle_dataset_5models_englishonly.xlsx',
     fallback_dataset_path='fallback_dataset.xlsx'
 )

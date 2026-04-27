@@ -5,7 +5,7 @@ echo ======================================================================
 echo.
 
 REM Set Gemini API Key
-set GEMINI_API_KEY=AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks
+set GEMINI_API_KEY=AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo
 
 echo API Key: Set
 echo Model: gemini-2.5-flash

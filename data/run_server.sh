@@ -9,7 +9,7 @@ echo "======================================================================"
 echo ""
 
 # Set the Gemini API key
-export GEMINI_API_KEY="AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks"
+export GEMINI_API_KEY="AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo"
 
 # Optional: Enable Firebase (set to 1 to enable)
 export ENABLE_FIREBASE=0

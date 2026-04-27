@@ -94,7 +94,7 @@ chatbot = None
 try:
     # Set API key if not already set
     if not os.getenv('GEMINI_API_KEY'):
-        os.environ['GEMINI_API_KEY'] = 'AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks'
+        os.environ['GEMINI_API_KEY'] = 'AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo'
 
     chatbot = VehicleChatbot(
         gemini_api_key=os.getenv('GEMINI_API_KEY'),

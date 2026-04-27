@@ -4,7 +4,7 @@ Quick test script for Gemini API
 import os
 
 # Set API key
-os.environ['GEMINI_API_KEY'] = 'AIzaSyDfh94Up4g4-APc8cOSN_jb39AV_3pswks'
+os.environ['GEMINI_API_KEY'] = 'AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo'
 
 print("=" * 70)
 print("Testing Gemini API Connection")
