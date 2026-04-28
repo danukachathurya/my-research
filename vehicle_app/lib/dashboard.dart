@@ -196,10 +196,9 @@ class _DashboardPageState extends State<DashboardPage> {
                       crossAxisCount: 2,
                       crossAxisSpacing: 16,
                       mainAxisSpacing: 16,
-                      childAspectRatio:
-                          MediaQuery.sizeOf(context).width < 380
-                              ? 0.74
-                              : 0.82,
+                      childAspectRatio: MediaQuery.sizeOf(context).width < 380
+                          ? 0.74
+                          : 0.82,
                       children: [
                         // Card 1: Vehicle Troubleshooting
                         _DashCard(
@@ -223,8 +222,7 @@ class _DashboardPageState extends State<DashboardPage> {
                         _DashCard(
                           icon: Icons.car_crash_rounded,
                           label: 'Damage\nAssessment',
-                          description:
-                              'Damage & repair cost estimation',
+                          description: 'Damage & repair cost estimation',
                           gradientColors: const [
                             Color(0xFFEF5350),
                             Color(0xFFC62828),
@@ -331,7 +329,26 @@ class _DashboardPageState extends State<DashboardPage> {
                           ),
                         ),
 
-                        // Card 8: Profile
+                        // Card 8: Emergency
+                        _DashCard(
+                          icon: Icons.emergency_rounded,
+                          label: 'Emergency',
+                          description:
+                              'Open emergency alerts, tracking, and response tools',
+                          gradientColors: const [
+                            Color(0xFFD32F2F),
+                            Color(0xFF7F1D1D),
+                          ],
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  const guardian_link.SplashScreen(),
+                            ),
+                          ),
+                        ),
+
+                        // Card 9: Profile
                         _DashCard(
                           icon: Icons.manage_accounts_rounded,
                           label: 'My\nProfile',
@@ -401,10 +418,10 @@ class _DashCard extends StatelessWidget {
         final cardPadding = isVeryCompact ? 14.0 : (isCompact ? 16.0 : 18.0);
         final iconPadding = isVeryCompact ? 8.0 : (isCompact ? 10.0 : 12.0);
         final iconSize = isVeryCompact ? 22.0 : (isCompact ? 24.0 : 28.0);
-        final labelFontSize =
-            isVeryCompact ? 13.0 : (isCompact ? 14.0 : 15.0);
-        final descriptionFontSize =
-            isVeryCompact ? 9.0 : (isCompact ? 10.0 : 11.0);
+        final labelFontSize = isVeryCompact ? 13.0 : (isCompact ? 14.0 : 15.0);
+        final descriptionFontSize = isVeryCompact
+            ? 9.0
+            : (isCompact ? 10.0 : 11.0);
         final descriptionLines = isCompact ? 1 : 2;
         final labelSpacing = isVeryCompact ? 3.0 : (isCompact ? 4.0 : 6.0);
         final actionSpacing = isVeryCompact ? 6.0 : (isCompact ? 8.0 : 10.0);
