@@ -1,8 +1,10 @@
 import 'dart:async';
 import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:intl/intl.dart';
+
 import '../../models/live_data_model.dart';
 import '../../models/user_model.dart';
 import '../../services/live_data_service.dart';
@@ -19,108 +21,248 @@ class LiveDataScreen extends StatefulWidget {
 }
 
 class _LiveDataScreenState extends State<LiveDataScreen> {
+  static const Duration _loadingTimeoutDuration = Duration(seconds: 6);
+
   final LiveDataService _liveDataService = LiveDataService();
   final Completer<GoogleMapController> _mapController =
       Completer<GoogleMapController>();
+
   LiveData? _liveData;
   bool _isLoading = true;
+  String? _errorMessage;
   Set<Marker> _markers = {};
+  Timer? _loadingTimeout;
   StreamSubscription<LiveData?>? _liveDataSubscription;
 
   @override
   void initState() {
     super.initState();
+    _startLoadingTimeout();
     _setupLiveDataListener();
+    unawaited(_loadInitialLiveData());
   }
 
   @override
   void dispose() {
+    _loadingTimeout?.cancel();
     _liveDataSubscription?.cancel();
     super.dispose();
+  }
+
+  void _startLoadingTimeout() {
+    _loadingTimeout?.cancel();
+    _loadingTimeout = Timer(_loadingTimeoutDuration, () {
+      if (!mounted || !_isLoading) {
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+        _errorMessage =
+            'Live data is taking longer than expected. Pull to refresh or try again shortly.';
+      });
+    });
+  }
+
+  Future<void> _loadInitialLiveData() async {
+    try {
+      final liveData = await _liveDataService.getLiveDataOnce(
+        widget.userModel.id,
+      );
+
+      if (!mounted || !_isLoading) {
+        return;
+      }
+
+      if (liveData == null) {
+        _loadingTimeout?.cancel();
+        setState(() {
+          _liveData = null;
+          _markers = {};
+          _isLoading = false;
+        });
+        return;
+      }
+
+      _applyLiveData(liveData, animateCamera: false);
+    } catch (_) {
+      if (!mounted || !_isLoading) {
+        return;
+      }
+
+      _loadingTimeout?.cancel();
+      setState(() {
+        _liveData = null;
+        _markers = {};
+        _isLoading = false;
+        _errorMessage =
+            'We could not load the latest live data right now. Please try again.';
+      });
+    }
   }
 
   void _setupLiveDataListener() {
     _liveDataSubscription = _liveDataService
         .getLiveDataStream(widget.userModel.id)
-        .listen((liveData) async {
-          if (mounted) {
-            if (liveData != null) {
-              // Create custom vehicle icon
-              final vehicleIcon = await _createVehicleIcon(
-                liveData.prediction.toUpperCase() == 'SAFE',
-              );
+        .listen(
+          (liveData) {
+            if (!mounted) {
+              return;
+            }
 
-              // Create marker for vehicle location
-              final marker = Marker(
-                markerId: MarkerId('vehicle_${widget.userModel.id}'),
-                position: LatLng(liveData.latitude, liveData.longitude),
-                onTap: () async {
-                  // Open maps navigation to vehicle location
-                  await MapHelper.openMapsNavigation(
-                    liveData.latitude,
-                    liveData.longitude,
-                    label: 'Your Vehicle',
-                  );
-                },
-                infoWindow: InfoWindow(
-                  title: '🚗 Your Vehicle',
-                  snippet:
-                      'Speed: ${liveData.speed} km/h • ${liveData.prediction.toUpperCase()}',
-                ),
-                icon: vehicleIcon,
-                rotation: 0, // Can be updated with vehicle heading if available
-                anchor: const Offset(0.5, 0.5),
-              );
-
-              setState(() {
-                _liveData = liveData;
-                _markers = {marker};
-                _isLoading = false;
-              });
-
-              // Animate camera to vehicle location
-              final controller = await _mapController.future;
-              controller.animateCamera(
-                CameraUpdate.newLatLngZoom(
-                  LatLng(liveData.latitude, liveData.longitude),
-                  15,
-                ),
-              );
-            } else {
+            if (liveData == null) {
+              _loadingTimeout?.cancel();
               setState(() {
                 _liveData = null;
                 _markers = {};
                 _isLoading = false;
               });
+              return;
             }
-          }
-        });
+
+            _applyLiveData(liveData);
+          },
+          onError: (_, _) {
+            if (!mounted) {
+              return;
+            }
+
+            _loadingTimeout?.cancel();
+            setState(() {
+              _liveData = null;
+              _markers = {};
+              _isLoading = false;
+              _errorMessage =
+                  'We could not read live data for this vehicle right now.';
+            });
+          },
+        );
+  }
+
+  void _applyLiveData(LiveData liveData, {bool animateCamera = true}) {
+    _loadingTimeout?.cancel();
+
+    final fallbackMarker = _buildVehicleMarker(
+      liveData,
+      _defaultVehicleIcon(liveData.prediction.toUpperCase() == 'SAFE'),
+    );
+
+    setState(() {
+      _liveData = liveData;
+      _markers = {fallbackMarker};
+      _isLoading = false;
+      _errorMessage = null;
+    });
+
+    unawaited(_updateVehicleMarkerIcon(liveData));
+    if (animateCamera) {
+      unawaited(_animateCameraToVehicle(liveData));
+    }
+  }
+
+  Marker _buildVehicleMarker(LiveData liveData, BitmapDescriptor icon) {
+    return Marker(
+      markerId: MarkerId('vehicle_${widget.userModel.id}'),
+      position: LatLng(liveData.latitude, liveData.longitude),
+      onTap: () async {
+        await MapHelper.openMapsNavigation(
+          liveData.latitude,
+          liveData.longitude,
+          label: 'Your Vehicle',
+        );
+      },
+      infoWindow: InfoWindow(
+        title: 'Your Vehicle',
+        snippet:
+            'Speed: ${liveData.speed} km/h | ${liveData.prediction.toUpperCase()}',
+      ),
+      icon: icon,
+      rotation: 0,
+      anchor: const Offset(0.5, 0.5),
+    );
+  }
+
+  BitmapDescriptor _defaultVehicleIcon(bool isSafe) {
+    return BitmapDescriptor.defaultMarkerWithHue(
+      isSafe ? BitmapDescriptor.hueGreen : BitmapDescriptor.hueRed,
+    );
+  }
+
+  Future<void> _updateVehicleMarkerIcon(LiveData liveData) async {
+    try {
+      final vehicleIcon = await _createVehicleIcon(
+        liveData.prediction.toUpperCase() == 'SAFE',
+      );
+
+      if (!mounted ||
+          _liveData == null ||
+          _liveData!.updatedAt != liveData.updatedAt) {
+        return;
+      }
+
+      setState(() {
+        _markers = {_buildVehicleMarker(liveData, vehicleIcon)};
+      });
+    } catch (_) {
+      // Keep the default marker if the custom marker creation fails.
+    }
+  }
+
+  Future<void> _animateCameraToVehicle(LiveData liveData) async {
+    if (!_mapController.isCompleted) {
+      return;
+    }
+
+    final controller = await _mapController.future;
+    await controller.animateCamera(
+      CameraUpdate.newLatLngZoom(
+        LatLng(liveData.latitude, liveData.longitude),
+        15,
+      ),
+    );
+  }
+
+  Future<void> _retryLoad() async {
+    _loadingTimeout?.cancel();
+
+    final subscription = _liveDataSubscription;
+    _liveDataSubscription = null;
+    if (subscription != null) {
+      await subscription.cancel();
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _liveData = null;
+      _markers = {};
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    _startLoadingTimeout();
+    _setupLiveDataListener();
+    await _loadInitialLiveData();
   }
 
   Future<BitmapDescriptor> _createVehicleIcon(bool isSafe) async {
-    // Use a simple colored circle with a car emoji/icon
-    // For a more sophisticated icon, you could use a custom image asset
     final color = isSafe ? AppColors.success : AppColors.error;
 
-    // Create a custom painter for the vehicle icon
     final pictureRecorder = ui.PictureRecorder();
     final canvas = Canvas(pictureRecorder);
     final paint = Paint()..color = color;
 
-    // Draw a circle background
     canvas.drawCircle(const Offset(50, 50), 40, paint);
 
-    // Draw a white border
     final borderPaint = Paint()
       ..color = Colors.white
       ..style = PaintingStyle.stroke
       ..strokeWidth = 4;
     canvas.drawCircle(const Offset(50, 50), 40, borderPaint);
 
-    // Draw a simple car shape
     final carPaint = Paint()..color = Colors.white;
-
-    // Car body (rectangle)
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         const Rect.fromLTWH(30, 40, 40, 20),
@@ -128,8 +270,6 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
       ),
       carPaint,
     );
-
-    // Car top (smaller rectangle)
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         const Rect.fromLTWH(38, 30, 24, 15),
@@ -138,7 +278,6 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
       carPaint,
     );
 
-    // Wheels
     final wheelPaint = Paint()..color = Colors.black87;
     canvas.drawCircle(const Offset(38, 60), 4, wheelPaint);
     canvas.drawCircle(const Offset(62, 60), 4, wheelPaint);
@@ -212,48 +351,58 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
 
   Widget _buildNoDataView() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.signal_wifi_off, size: 80, color: AppColors.textTertiary),
-          const SizedBox(height: 24),
-          Text(
-            'No Live Data Available',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: AppColors.textPrimary,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.signal_wifi_off,
+              size: 80,
+              color: AppColors.textTertiary,
             ),
-          ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 48),
-            child: Text(
-              'Your vehicle is not currently transmitting data',
+            const SizedBox(height: 24),
+            Text(
+              'No Live Data Available',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              _errorMessage ??
+                  'Your vehicle is not currently transmitting data',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 16, color: AppColors.textSecondary),
             ),
-          ),
-        ],
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: _retryLoad,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildLiveDataView() {
     final liveData = _liveData!;
+    final lastUpdatedText = liveData.hasValidTimestamp
+        ? DateFormat('MMM dd, yyyy - hh:mm a').format(liveData.lastUpdated)
+        : 'Unavailable';
 
     return RefreshIndicator(
-      onRefresh: () async {
-        // Data updates automatically via listener
-        await Future.delayed(const Duration(milliseconds: 500));
-      },
+      onRefresh: _retryLoad,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Last Updated Info
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -268,20 +417,20 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
                     color: AppColors.textSecondary,
                   ),
                   const SizedBox(width: 8),
-                  Text(
-                    'Last updated: ${DateFormat('MMM dd, yyyy • hh:mm a').format(liveData.lastUpdated)}',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w500,
+                  Expanded(
+                    child: Text(
+                      'Last updated: $lastUpdatedText',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 20),
-
-            // Safety Status Section
             _buildSectionTitle('Safety Status'),
             const SizedBox(height: 12),
             Row(
@@ -306,16 +455,10 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
               ],
             ),
             const SizedBox(height: 12),
-
-            // Prediction Card
             _buildPredictionCard(liveData.prediction),
-
             const SizedBox(height: 24),
-
-            // Vehicle Metrics Section
             _buildSectionTitle('Vehicle Metrics'),
             const SizedBox(height: 12),
-
             Row(
               children: [
                 Expanded(
@@ -340,7 +483,6 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
               ],
             ),
             const SizedBox(height: 12),
-
             Row(
               children: [
                 Expanded(
@@ -357,17 +499,14 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
                   child: _buildMetricCard(
                     'Temperature',
                     liveData.temp.toStringAsFixed(1),
-                    '°C',
+                    '\u00B0C',
                     Icons.thermostat,
                     _getTempColor(liveData.temp),
                   ),
                 ),
               ],
             ),
-
             const SizedBox(height: 24),
-
-            // Location Section
             _buildSectionTitle('Location'),
             const SizedBox(height: 12),
             _buildLocationCard(liveData.latitude, liveData.longitude),
@@ -565,7 +704,6 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
         borderRadius: BorderRadius.circular(12),
         child: Column(
           children: [
-            // Map Header
             Container(
               padding: const EdgeInsets.all(16),
               color: AppColors.primary.withValues(alpha: 0.1),
@@ -600,7 +738,6 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
                 ],
               ),
             ),
-            // Map View
             SizedBox(
               height: 300,
               child: GoogleMap(
@@ -629,14 +766,22 @@ class _LiveDataScreenState extends State<LiveDataScreen> {
   }
 
   Color _getFuelColor(int fuel) {
-    if (fuel > 50) return AppColors.success;
-    if (fuel > 25) return Colors.orange;
+    if (fuel > 50) {
+      return AppColors.success;
+    }
+    if (fuel > 25) {
+      return Colors.orange;
+    }
     return AppColors.error;
   }
 
   Color _getTempColor(double temp) {
-    if (temp < 80) return AppColors.success;
-    if (temp < 100) return Colors.orange;
+    if (temp < 80) {
+      return AppColors.success;
+    }
+    if (temp < 100) {
+      return Colors.orange;
+    }
     return AppColors.error;
   }
 }
