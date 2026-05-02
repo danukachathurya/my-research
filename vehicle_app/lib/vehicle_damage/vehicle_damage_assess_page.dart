@@ -128,6 +128,18 @@ class _VehicleDamageAssessPageState extends State<VehicleDamageAssessPage> {
           .doc(currentUser.uid)
           .get();
       final data = profile.data() ?? <String, dynamic>{};
+      final preferred = data['preferredInsurerId']?.toString().trim();
+      if (preferred != null && preferred.isNotEmpty) return preferred;
+
+      final preferredCompany = data['preferredInsurerName']?.toString().trim();
+      final preferredCompanyId = _findInsurerIdByCompanyName(
+        preferredCompany,
+        insurers,
+      );
+      if (preferredCompanyId != null && preferredCompanyId.isNotEmpty) {
+        return preferredCompanyId;
+      }
+
       final assigned = data['assignedInsurerId']?.toString().trim();
       if (assigned != null && assigned.isNotEmpty) return assigned;
 
@@ -387,6 +399,7 @@ class _VehicleDamageAssessPageState extends State<VehicleDamageAssessPage> {
         vehicleYear: _yearController.text,
         apiUrl: apiUrl,
         useAi: true,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
       );
       final result = await processDamageAssessment(request);
       setState(() {

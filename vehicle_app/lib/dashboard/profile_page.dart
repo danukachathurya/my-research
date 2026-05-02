@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../auth/user_role_service.dart';
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -22,6 +23,8 @@ class _ProfilePageState extends State<ProfilePage> {
   String _role = 'customer';
   String? _selectedInsurerId;
   List<_InsurerOption> _insurerOptions = [];
+
+  bool get _canEditInsurerSelection => _isEditing && _role == 'customer';
 
   @override
   void initState() {
@@ -72,11 +75,8 @@ class _ProfilePageState extends State<ProfilePage> {
     _emailController.text = user.email ?? '';
 
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .get();
-      final data = doc.data() ?? <String, dynamic>{};
+      final doc = await UserRoleService.getUserProfileSnapshotForUser(user);
+      final data = doc?.data() ?? <String, dynamic>{};
 
       _emailController.text = (data['email'] ?? user.email ?? '').toString();
       _role = (data['role'] ?? 'customer').toString();
@@ -85,7 +85,9 @@ class _ProfilePageState extends State<ProfilePage> {
       _phoneController.text = (data['phone'] ?? '').toString();
       _addressController.text = (data['address'] ?? '').toString();
 
-      _selectedInsurerId = data['assignedInsurerId']?.toString();
+      _selectedInsurerId =
+          data['preferredInsurerId']?.toString() ??
+          data['assignedInsurerId']?.toString();
       _insurerOptions = await _loadInsurerOptions();
 
       final selectedExists = _insurerOptions.any((i) => i.id == _selectedInsurerId);
@@ -113,9 +115,11 @@ class _ProfilePageState extends State<ProfilePage> {
 
     setState(() => _isSaving = true);
     try {
-      var insurerAssignmentDenied = false;
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      final profileRef = await UserRoleService.resolveUserProfileRefForUser(user);
+      await profileRef.set({
         'fullName': _nameController.text.trim(),
+        'email': user.email ?? _emailController.text.trim(),
+        'uid': user.uid,
         'phone': _phoneController.text.trim(),
         'address': _addressController.text.trim(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -124,20 +128,12 @@ class _ProfilePageState extends State<ProfilePage> {
       final selected = _insurerOptions.where((i) => i.id == _selectedInsurerId);
       final selectedCompanyName =
           selected.isNotEmpty ? selected.first.companyName : null;
-      if (_selectedInsurerId != null && selectedCompanyName != null) {
-        try {
-          await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-            'assignedInsurerId': _selectedInsurerId,
-            'insurerCompanyName': selectedCompanyName,
-            'updatedAt': FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-        } on FirebaseException catch (e) {
-          if (e.code == 'permission-denied' && mounted) {
-            insurerAssignmentDenied = true;
-          } else {
-            rethrow;
-          }
-        }
+      if (_role == 'customer') {
+        await profileRef.set({
+          'preferredInsurerId': _selectedInsurerId,
+          'preferredInsurerName': selectedCompanyName,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
       }
 
       if (!mounted) return;
@@ -145,13 +141,7 @@ class _ProfilePageState extends State<ProfilePage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(
-        SnackBar(
-          content: Text(
-            insurerAssignmentDenied
-                ? 'Basic profile saved. Insurer assignment requires admin permission.'
-                : 'Profile updated',
-          ),
-        ),
+        const SnackBar(content: Text('Profile updated')),
       );
     } on FirebaseException catch (e) {
       if (!mounted) return;
@@ -252,7 +242,11 @@ class _ProfilePageState extends State<ProfilePage> {
                 const SizedBox(height: 20),
                 DropdownButtonFormField<String>(
                   value: dropdownValue,
-                  decoration: inputStyle('Select Insurance Company'),
+                  decoration: inputStyle(
+                    _role == 'customer'
+                        ? 'Select Insurance Company'
+                        : 'Assigned Insurance Company',
+                  ),
                   items: _insurerOptions
                       .map(
                         (i) => DropdownMenuItem<String>(
@@ -261,10 +255,17 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       )
                       .toList(),
-                  onChanged: _isEditing
+                  onChanged: _canEditInsurerSelection
                       ? (v) => setState(() => _selectedInsurerId = v)
                       : null,
                 ),
+                if (_role != 'customer') ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'This insurer assignment is managed by admin for $_role accounts.',
+                    style: TextStyle(color: Colors.blueGrey[700]),
+                  ),
+                ],
                 if (_insurerOptions.isEmpty) ...[
                   const SizedBox(height: 8),
                   Text(

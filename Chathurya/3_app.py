@@ -1021,7 +1021,11 @@ async def assess_damage(
     vehicle_brand: str = Form(..., description="Vehicle brand (e.g., Toyota)"),
     vehicle_model: str = Form(..., description="Vehicle model (e.g., Corolla)"),
     vehicle_year: int = Form(..., description="Vehicle year (e.g., 2016)"),
-    use_ai: bool = Form(True, description="Use Gemini AI for validation")
+    use_ai: bool = Form(True, description="Use Gemini AI for validation"),
+    user_uid: Optional[str] = Form(
+        None,
+        description="Current authenticated user UID",
+    ),
 ):
     """
     Assess vehicle damage from image
@@ -1197,6 +1201,7 @@ async def assess_damage(
                 "model": vehicle_model,
                 "year": vehicle_year,
             },
+            "owner_uid": (user_uid or "").strip(),
             "image_hash": img_hash,
             "damage_image": claim_image_attachment,
             "status": "ai_generated",
@@ -1362,8 +1367,20 @@ def insurer_claims(insurer_id: str):
     return claims
 
 @app.get("/claims")
-def list_claims():
-    """Return all claims sorted by created_at descending, limited to 50."""
+def list_claims(owner_uid: Optional[str] = None):
+    """Return claims sorted by created_at descending, optionally filtered by owner."""
+    normalized_owner_uid = (owner_uid or "").strip()
+
+    if normalized_owner_uid:
+        docs = (
+            db.collection("claims")
+            .where("owner_uid", "==", normalized_owner_uid)
+            .stream()
+        )
+        claims = [{"id": d.id, **d.to_dict()} for d in docs]
+        claims.sort(key=lambda claim: claim.get("created_at", ""), reverse=True)
+        return claims[:50]
+
     docs = (
         db.collection("claims")
         .order_by("created_at", direction=firestore.Query.DESCENDING)

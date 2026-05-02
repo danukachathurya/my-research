@@ -155,6 +155,20 @@ class InsuranceClaimService {
           .doc(currentUser.uid)
           .get();
       final data = profile.data() ?? <String, dynamic>{};
+      final preferred = data['preferredInsurerId']?.toString().trim();
+      if (preferred != null && preferred.isNotEmpty) {
+        return preferred;
+      }
+
+      final preferredCompany = data['preferredInsurerName']?.toString().trim();
+      final preferredCompanyId = findInsurerIdByCompanyName(
+        preferredCompany,
+        insurers,
+      );
+      if (preferredCompanyId != null && preferredCompanyId.isNotEmpty) {
+        return preferredCompanyId;
+      }
+
       final assigned = data['assignedInsurerId']?.toString().trim();
       if (assigned != null && assigned.isNotEmpty) {
         return assigned;

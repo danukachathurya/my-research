@@ -447,7 +447,36 @@ class _HomePageState extends State<HomePage> {
     return insurerId?.trim();
   }
 
-  Future<String?> _getCurrentUserAssignedInsurerId() async {
+  String _insurerDisplayName(Map<String, dynamic> insurer) {
+    return (insurer['name'] ??
+            insurer['company_name'] ??
+            insurer['display_name'] ??
+            insurer['companyName'] ??
+            insurer['id'] ??
+            '')
+        .toString()
+        .trim();
+  }
+
+  String? _findInsurerIdByCompanyName(
+    String? companyName,
+    List<Map<String, dynamic>> insurers,
+  ) {
+    final needle = companyName?.trim().toLowerCase();
+    if (needle == null || needle.isEmpty) return null;
+
+    for (final insurer in insurers) {
+      if (_insurerDisplayName(insurer).toLowerCase() == needle) {
+        final id = insurer['id']?.toString().trim();
+        if (id != null && id.isNotEmpty) return id;
+      }
+    }
+    return null;
+  }
+
+  Future<String?> _getCurrentUserAssignedInsurerId(
+    List<Map<String, dynamic>> insurers,
+  ) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null) return null;
 
@@ -456,7 +485,20 @@ class _HomePageState extends State<HomePage> {
           .collection('users')
           .doc(currentUser.uid)
           .get();
-      final assigned = profile.data()?['assignedInsurerId']?.toString().trim();
+      final data = profile.data() ?? <String, dynamic>{};
+      final preferred = data['preferredInsurerId']?.toString().trim();
+      if (preferred != null && preferred.isNotEmpty) return preferred;
+
+      final preferredCompany = data['preferredInsurerName']?.toString().trim();
+      final preferredCompanyId = _findInsurerIdByCompanyName(
+        preferredCompany,
+        insurers,
+      );
+      if (preferredCompanyId != null && preferredCompanyId.isNotEmpty) {
+        return preferredCompanyId;
+      }
+
+      final assigned = data['assignedInsurerId']?.toString().trim();
       if (assigned == null || assigned.isEmpty) return null;
       return assigned;
     } catch (_) {
@@ -537,7 +579,7 @@ class _HomePageState extends State<HomePage> {
         return;
       }
 
-      String? insurerId = await _getCurrentUserAssignedInsurerId();
+      String? insurerId = await _getCurrentUserAssignedInsurerId(insurers);
       insurerId ??= await _promptInsurerFromList(insurers);
       if (insurerId == null || insurerId.isEmpty) {
         return;
@@ -676,6 +718,7 @@ class _HomePageState extends State<HomePage> {
         vehicleYear: _yearController.text,
         apiUrl: apiUrl,
         useAi: true,
+        userUid: FirebaseAuth.instance.currentUser?.uid,
       );
 
       // Process assessment in background isolate to avoid blocking UI

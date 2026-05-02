@@ -5,6 +5,9 @@ class UserRoleService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static const String _usersCollection = 'users';
 
+  static CollectionReference<Map<String, dynamic>> get _usersRef =>
+      _firestore.collection(_usersCollection);
+
   /// Create user profile if it doesn't exist
   static Future<void> createDefaultUserProfile(
     User user, {
@@ -12,7 +15,7 @@ class UserRoleService {
     required String phone,
     required String address,
   }) async {
-    final ref = _firestore.collection(_usersCollection).doc(user.uid);
+    final ref = _usersRef.doc(user.uid);
 
     await ref.set({
       'uid': user.uid,
@@ -22,6 +25,8 @@ class UserRoleService {
       'address': address,
       'role': 'customer',
       'assignedInsurerId': null,
+      'preferredInsurerId': null,
+      'preferredInsurerName': null,
       'createdAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -46,23 +51,36 @@ class UserRoleService {
 
   /// Get profile for logged in user
   static Future<Map<String, dynamic>?> getUserProfileForUser(User user) async {
+    final snapshot = await getUserProfileSnapshotForUser(user);
+    return snapshot?.data();
+  }
+
+  static Future<DocumentSnapshot<Map<String, dynamic>>?>
+  getUserProfileSnapshotForUser(User user) async {
     // First try by UID
-    final byUid = await getUserProfile(user.uid);
-    if (byUid != null) return byUid;
+    final uidDoc = await _usersRef.doc(user.uid).get();
+    if (uidDoc.exists) return uidDoc;
 
     // fallback: search by email
     final email = user.email?.trim();
     if (email == null || email.isEmpty) return null;
 
-    final query = await _firestore
-        .collection(_usersCollection)
+    final query = await _usersRef
         .where('email', isEqualTo: email)
         .limit(1)
         .get();
 
-    if (query.docs.isEmpty) return null;
+    if (query.docs.isNotEmpty) return query.docs.first;
 
-    return query.docs.first.data();
+    final byUidField = await _usersRef.where('uid', isEqualTo: user.uid).limit(1).get();
+    if (byUidField.docs.isEmpty) return null;
+    return byUidField.docs.first;
+  }
+
+  static Future<DocumentReference<Map<String, dynamic>>>
+  resolveUserProfileRefForUser(User user) async {
+    final snapshot = await getUserProfileSnapshotForUser(user);
+    return snapshot?.reference ?? _usersRef.doc(user.uid);
   }
 
   /// Normalize role values
