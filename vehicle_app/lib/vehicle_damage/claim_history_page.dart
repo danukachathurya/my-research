@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import '../common/insurance_claim_service.dart';
 import 'final_report_page.dart';
 
 // ─── ClaimHistoryPage ─────────────────────────────────────────────────────────
@@ -20,6 +21,7 @@ class ClaimHistoryPage extends StatefulWidget {
 }
 
 class _ClaimHistoryPageState extends State<ClaimHistoryPage> {
+  final InsuranceClaimService _insuranceClaimService = InsuranceClaimService();
   List<Map<String, dynamic>> _claims = [];
   bool _isLoading = false;
   String? _errorMessage;
@@ -289,8 +291,46 @@ class _ClaimHistoryPageState extends State<ClaimHistoryPage> {
       builder: (context) => _ClaimDetailSheet(
         claim: claim,
         formatDate: _formatDate,
+        onOpenFinalReport: () => _openFinalReport(context, claim),
       ),
     );
+  }
+
+  Future<void> _openFinalReport(
+    BuildContext context,
+    Map<String, dynamic> claim,
+  ) async {
+    final latestClaim = await _loadLatestClaim(claim);
+
+    if (!context.mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FinalReportPage(
+          claim: latestClaim,
+          formatDate: _formatDate,
+        ),
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>> _loadLatestClaim(
+    Map<String, dynamic> claim,
+  ) async {
+    final claimId = claim['id']?.toString().trim();
+    var latestClaim = claim;
+
+    if (claimId != null && claimId.isNotEmpty) {
+      try {
+        latestClaim = await _insuranceClaimService.fetchClaim(claimId);
+      } catch (_) {
+        // Fall back to the currently loaded claim if refresh fails.
+      }
+    }
+
+    return latestClaim;
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────────
@@ -383,10 +423,12 @@ class _ClaimHistoryPageState extends State<ClaimHistoryPage> {
 class _ClaimDetailSheet extends StatelessWidget {
   final Map<String, dynamic> claim;
   final String Function(dynamic) formatDate;
+  final VoidCallback onOpenFinalReport;
 
   const _ClaimDetailSheet({
     required this.claim,
     required this.formatDate,
+    required this.onOpenFinalReport,
   });
 
   @override
@@ -671,14 +713,7 @@ class _ClaimDetailSheet extends StatelessWidget {
                   if (claim['status'] == 'decision_submitted') ...[
                     const SizedBox(height: 8),
                     ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => FinalReportPage(
-                            claim: claim,
-                            formatDate: formatDate,
-                          ),
-                        ),
-                      ),
+                      onPressed: onOpenFinalReport,
                       icon: const Icon(Icons.summarize),
                       label: const Text('View Final Report'),
                       style: ElevatedButton.styleFrom(

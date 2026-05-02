@@ -1,11 +1,344 @@
+import 'dart:convert';
+import 'dart:math' as math;
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-// ─── FinalReportPage ──────────────────────────────────────────────────────────
-// A read-only report showing the full claim lifecycle after an insurer has
-// submitted their decision. Accessible from both the insurer decision sheet
-// and the customer's claim history detail sheet.
-// ─────────────────────────────────────────────────────────────────────────────
+Map<String, dynamic>? extractClaimDamageImage(Map<String, dynamic> claim) {
+  final aiResult = (claim['ai_result'] as Map?)?.cast<String, dynamic>() ?? {};
+  final candidates = <dynamic>[
+    claim['damage_image'],
+    claim['damageImage'],
+    aiResult['damage_image'],
+    aiResult['damageImage'],
+  ];
+
+  for (final raw in candidates) {
+    if (raw is Map) {
+      return Map<String, dynamic>.from(raw);
+    }
+
+    if (raw is String) {
+      final trimmed = raw.trim();
+      if (trimmed.isEmpty) {
+        continue;
+      }
+
+      try {
+        final decoded = jsonDecode(trimmed);
+        if (decoded is Map) {
+          return Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        // Ignore malformed JSON strings and continue checking fallbacks.
+      }
+    }
+  }
+
+  return null;
+}
+
+Uint8List? _decodeClaimDamageImageBytes(Map<String, dynamic>? damageImage) {
+  var encoded =
+      (damageImage?['data_base64'] ??
+              damageImage?['base64'] ??
+              damageImage?['bytes_base64'] ??
+              damageImage?['data'])
+          ?.toString()
+          .trim();
+  if (encoded == null || encoded.isEmpty) {
+    return null;
+  }
+
+  if (encoded.startsWith('data:')) {
+    final commaIndex = encoded.indexOf(',');
+    if (commaIndex != -1 && commaIndex < encoded.length - 1) {
+      encoded = encoded.substring(commaIndex + 1).trim();
+    }
+  }
+
+  encoded = encoded.replaceAll(RegExp(r'\s+'), '');
+  final remainder = encoded.length % 4;
+  if (remainder != 0) {
+    encoded = '$encoded${'=' * (4 - remainder)}';
+  }
+
+  try {
+    return base64Decode(encoded);
+  } catch (_) {
+    return null;
+  }
+}
+
+Uint8List buildFinalReportPdf(
+  Map<String, dynamic> claim,
+  String Function(dynamic) formatDate,
+) {
+  final aiResult = (claim['ai_result'] as Map?)?.cast<String, dynamic>() ?? {};
+  final damageDetection =
+      (aiResult['damage_detection'] as Map?)?.cast<String, dynamic>() ?? {};
+  final priceEstimation =
+      (aiResult['price_estimation'] as Map?)?.cast<String, dynamic>() ?? {};
+  final partMapping =
+      (aiResult['part_mapping'] as Map?)?.cast<String, dynamic>() ?? {};
+  final vehicle = (claim['vehicle'] as Map?)?.cast<String, dynamic>() ?? {};
+  final damages =
+      (damageDetection['detected_damages'] as List?)
+          ?.map((item) => item.toString())
+          .toList() ??
+      <String>[];
+  final confidences = damageDetection['confidences'] as Map? ?? {};
+  final breakdown = priceEstimation['breakdown'] as Map? ?? {};
+  final affectedPart = partMapping['affected_part']?.toString().trim() ?? '';
+  final currency = priceEstimation['currency']?.toString() ?? 'LKR';
+  final damageImage = extractClaimDamageImage(claim);
+  final damageImageBytes = _decodeClaimDamageImageBytes(damageImage);
+  final damageImageContentType =
+      damageImage?['content_type']?.toString().trim() ?? 'image/jpeg';
+  final imageWidth = damageImage?['width'] is num
+      ? (damageImage!['width'] as num).toDouble()
+      : 960.0;
+  final imageHeight = damageImage?['height'] is num
+      ? (damageImage!['height'] as num).toDouble()
+      : 540.0;
+  final hasJpegImage = damageImageBytes != null &&
+      (damageImageContentType.toLowerCase().contains('jpeg') ||
+          damageImageContentType.toLowerCase().contains('jpg'));
+
+  String pdfEsc(String value) => value
+      .replaceAll(r'\', r'\\')
+      .replaceAll('(', r'\(')
+      .replaceAll(')', r'\)');
+
+  String money(dynamic value) {
+    if (value is num) {
+      return NumberFormat('#,##0.00', 'en_US').format(value);
+    }
+    return 'N/A';
+  }
+
+  final claimId =
+      claim['id']?.toString() ?? aiResult['claim_id']?.toString() ?? 'N/A';
+  final vehicleLabel =
+      '${vehicle['brand'] ?? ''} ${vehicle['model'] ?? ''} ${vehicle['year'] ?? ''}'
+          .trim();
+  final decision = claim['decision']?.toString() ?? '';
+  final generatedAt = DateFormat('MMM dd, yyyy - HH:mm').format(DateTime.now());
+  final finalCost = claim['final_cost'];
+  final estimatedPrice = priceEstimation['estimated_price'];
+
+  final lines = <_PdfLine>[
+    _PdfLine('Claim Assessment Report', bold: true, size: 20),
+    _PdfLine(vehicleLabel.isEmpty ? 'Unknown Vehicle' : vehicleLabel),
+    _PdfLine(''),
+    _PdfLine('Report Summary', bold: true, size: 15),
+    _PdfLine('Claim ID: $claimId'),
+    _PdfLine('Generated: $generatedAt'),
+    _PdfLine(''),
+    _PdfLine('Vehicle Details', bold: true, size: 15),
+    _PdfLine('Brand: ${vehicle['brand']?.toString() ?? 'N/A'}'),
+    _PdfLine('Model: ${vehicle['model']?.toString() ?? 'N/A'}'),
+    _PdfLine('Year: ${vehicle['year']?.toString() ?? 'N/A'}'),
+    _PdfLine(''),
+    _PdfLine('Claim Timeline', bold: true, size: 15),
+    _PdfLine('Submitted: ${formatDate(claim['created_at'])}'),
+    if (claim['sent_at'] != null)
+      _PdfLine('Sent to insurer: ${formatDate(claim['sent_at'])}'),
+    if (claim['decided_at'] != null)
+      _PdfLine('Decision submitted: ${formatDate(claim['decided_at'])}'),
+    _PdfLine(''),
+    _PdfLine('AI Damage Assessment', bold: true, size: 15),
+    if (damages.isEmpty)
+      _PdfLine('No damages detected')
+    else
+      ...damages.map((damage) {
+        final confidence = confidences[damage];
+        final confidenceLabel = confidence is num
+            ? ' (${(confidence * 100).toStringAsFixed(1)}%)'
+            : '';
+        return _PdfLine(
+          '- ${damage.replaceAll('_', ' ').toUpperCase()}$confidenceLabel',
+        );
+      }),
+    if (affectedPart.isNotEmpty)
+      _PdfLine('Affected Part: ${affectedPart.replaceAll('_', ' ').toUpperCase()}'),
+    _PdfLine(''),
+    _PdfLine('Predicted Cost Breakdown', bold: true, size: 15),
+    _PdfLine(
+      'Parts & Materials: ${breakdown['parts'] is num ? '$currency ${money(breakdown['parts'])}' : 'N/A'}',
+    ),
+    _PdfLine(
+      'Paint & Finishing: ${breakdown['paint'] is num ? '$currency ${money(breakdown['paint'])}' : 'N/A'}',
+    ),
+    _PdfLine(
+      'AI Predicted Total: ${estimatedPrice is num ? '$currency ${money(estimatedPrice)}' : 'N/A'}',
+    ),
+    _PdfLine(''),
+    _PdfLine('Insurer Decision', bold: true, size: 15),
+    _PdfLine(
+      'Status: ${decision == 'confirmed' ? 'AI Estimate Confirmed' : decision == 'adjusted' ? 'Cost Adjusted by Insurer' : 'Pending'}',
+    ),
+    _PdfLine(
+      'Final Approved Cost: ${finalCost is num ? '$currency ${money(finalCost)}' : 'N/A'}',
+    ),
+    if (claim['notes']?.toString().trim().isNotEmpty == true)
+      _PdfLine('Insurer Notes: ${claim['notes'].toString().trim()}'),
+  ];
+
+  final wrappedLines = <_PdfLine>[];
+  for (final line in lines) {
+    wrappedLines.addAll(_wrapPdfLine(line));
+  }
+
+  const pageWidth = 595.0;
+  const pageHeight = 842.0;
+  const margin = 40.0;
+  final stream = StringBuffer();
+  var currentY = pageHeight - margin;
+
+  if (hasJpegImage) {
+    final maxWidth = pageWidth - (margin * 2);
+    const maxHeight = 220.0;
+    final scale = math.min(maxWidth / imageWidth, maxHeight / imageHeight);
+    final drawWidth = imageWidth * scale;
+    final drawHeight = imageHeight * scale;
+    final imageX = (pageWidth - drawWidth) / 2;
+    final imageY = currentY - drawHeight;
+    stream.writeln(
+      'q ${drawWidth.toStringAsFixed(2)} 0 0 ${drawHeight.toStringAsFixed(2)} ${imageX.toStringAsFixed(2)} ${imageY.toStringAsFixed(2)} cm /Im1 Do Q',
+    );
+    currentY = imageY - 24;
+  }
+
+  for (final line in wrappedLines) {
+    final font = line.bold ? '/F2' : '/F1';
+    final lineHeight = line.size + 4.0;
+    if (line.text.isEmpty) {
+      currentY -= lineHeight / 2;
+      continue;
+    }
+
+    stream.writeln(
+      'BT $font ${line.size.toStringAsFixed(2)} Tf ${margin.toStringAsFixed(2)} ${currentY.toStringAsFixed(2)} Td (${pdfEsc(line.text)}) Tj ET',
+    );
+    currentY -= lineHeight;
+  }
+
+  final objects = <int, Uint8List>{};
+  void addObject(int id, String content) {
+    objects[id] = Uint8List.fromList(utf8.encode(content));
+  }
+
+  void addStreamObject(int id, String header, Uint8List bytes) {
+    final builder = BytesBuilder()
+      ..add(utf8.encode(header))
+      ..add(bytes)
+      ..add(utf8.encode('\nendstream'));
+    objects[id] = builder.toBytes();
+  }
+
+  addObject(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  addObject(2, '<< /Type /Pages /Kids [3 0 R] /Count 1 >>');
+  addObject(4, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+  addObject(5, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
+
+  final contentObjectId = hasJpegImage ? 7 : 6;
+  if (hasJpegImage) {
+    addStreamObject(
+      6,
+      '<< /Type /XObject /Subtype /Image /Width ${imageWidth.round()} /Height ${imageHeight.round()} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${damageImageBytes.length} >>\nstream\n',
+      damageImageBytes,
+    );
+  }
+
+  final contentBytes = Uint8List.fromList(utf8.encode(stream.toString()));
+  addStreamObject(
+    contentObjectId,
+    '<< /Length ${contentBytes.length} >>\nstream\n',
+    contentBytes,
+  );
+
+  final resources = hasJpegImage
+      ? '<< /Font << /F1 4 0 R /F2 5 0 R >> /XObject << /Im1 6 0 R >> >>'
+      : '<< /Font << /F1 4 0 R /F2 5 0 R >> >>';
+  addObject(
+    3,
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $pageWidth $pageHeight] /Resources $resources /Contents $contentObjectId 0 R >>',
+  );
+
+  final output = BytesBuilder()..add(utf8.encode('%PDF-1.4\n'));
+  final offsets = <int, int>{};
+  final objectIds = objects.keys.toList()..sort();
+
+  for (final id in objectIds) {
+    offsets[id] = output.length;
+    output.add(utf8.encode('$id 0 obj\n'));
+    output.add(objects[id]!);
+    output.add(utf8.encode('\nendobj\n'));
+  }
+
+  final xrefStart = output.length;
+  output.add(utf8.encode('xref\n0 ${objectIds.length + 1}\n'));
+  output.add(utf8.encode('0000000000 65535 f \n'));
+  for (final id in objectIds) {
+    final offset = offsets[id] ?? 0;
+    output.add(utf8.encode('${offset.toString().padLeft(10, '0')} 00000 n \n'));
+  }
+
+  output.add(
+    utf8.encode(
+      'trailer\n<< /Size ${objectIds.length + 1} /Root 1 0 R >>\nstartxref\n$xrefStart\n%%EOF',
+    ),
+  );
+
+  return output.toBytes();
+}
+
+class _PdfLine {
+  final String text;
+  final bool bold;
+  final double size;
+
+  const _PdfLine(
+    this.text, {
+    this.bold = false,
+    this.size = 12,
+  });
+}
+
+List<_PdfLine> _wrapPdfLine(_PdfLine line) {
+  if (line.text.isEmpty) {
+    return [line];
+  }
+
+  final maxChars = line.bold ? 58 : 82;
+  if (line.text.length <= maxChars) {
+    return [line];
+  }
+
+  final words = line.text.split(' ');
+  final wrapped = <_PdfLine>[];
+  var current = '';
+
+  for (final word in words) {
+    final candidate = current.isEmpty ? word : '$current $word';
+    if (candidate.length <= maxChars) {
+      current = candidate;
+    } else {
+      if (current.isNotEmpty) {
+        wrapped.add(_PdfLine(current, bold: line.bold, size: line.size));
+      }
+      current = word;
+    }
+  }
+
+  if (current.isNotEmpty) {
+    wrapped.add(_PdfLine(current, bold: line.bold, size: line.size));
+  }
+
+  return wrapped;
+}
 
 class FinalReportPage extends StatelessWidget {
   final Map<String, dynamic> claim;
@@ -17,7 +350,6 @@ class FinalReportPage extends StatelessWidget {
     required this.formatDate,
   });
 
-  // ── Data helpers ──────────────────────────────────────────────────────────────
   Map<String, dynamic> get _aiResult =>
       (claim['ai_result'] as Map?)?.cast<String, dynamic>() ?? {};
 
@@ -65,13 +397,17 @@ class FinalReportPage extends StatelessWidget {
     return '$b $m $y'.trim().isEmpty ? 'Unknown Vehicle' : '$b $m $y'.trim();
   }
 
-  String _fmt(num value) =>
-      NumberFormat('#,##0.00', 'en_US').format(value);
+  Map<String, dynamic>? get _damageImage {
+    return extractClaimDamageImage(claim);
+  }
 
-  // ── Build ─────────────────────────────────────────────────────────────────────
+  Uint8List? get _damageImageBytes => _decodeClaimDamageImageBytes(_damageImage);
+
+  String _fmt(num value) => NumberFormat('#,##0.00', 'en_US').format(value);
+
   @override
   Widget build(BuildContext context) {
-    final now = DateFormat('MMM dd, yyyy – HH:mm').format(DateTime.now());
+    final now = DateFormat('MMM dd, yyyy - HH:mm').format(DateTime.now());
 
     return Scaffold(
       backgroundColor: Colors.grey[100],
@@ -85,7 +421,6 @@ class FinalReportPage extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            // ── Report header card ─────────────────────────────────────────
             _ReportCard(
               child: Column(
                 children: [
@@ -97,8 +432,11 @@ class FinalReportPage extends StatelessWidget {
                           color: Colors.indigo[50],
                           shape: BoxShape.circle,
                         ),
-                        child: Icon(Icons.summarize,
-                            color: Colors.indigo[700], size: 26),
+                        child: Icon(
+                          Icons.summarize,
+                          color: Colors.indigo[700],
+                          size: 26,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
@@ -108,12 +446,16 @@ class FinalReportPage extends StatelessWidget {
                             const Text(
                               'Claim Assessment Report',
                               style: TextStyle(
-                                  fontSize: 17, fontWeight: FontWeight.bold),
+                                fontSize: 17,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                             Text(
                               _vehicleLabel,
                               style: TextStyle(
-                                  fontSize: 13, color: Colors.grey[600]),
+                                fontSize: 13,
+                                color: Colors.grey[600],
+                              ),
                             ),
                           ],
                         ),
@@ -129,8 +471,23 @@ class FinalReportPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-
-            // ── Vehicle details ────────────────────────────────────────────
+            if (_damageImageBytes != null) ...[
+              _ReportSection(
+                icon: Icons.photo_camera_outlined,
+                iconColor: Colors.indigo[700]!,
+                title: 'Uploaded Damage Photo',
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(
+                    _damageImageBytes!,
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    height: 220,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             _ReportSection(
               icon: Icons.directions_car,
               iconColor: Colors.blue[700]!,
@@ -144,8 +501,6 @@ class FinalReportPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-
-            // ── Timeline ──────────────────────────────────────────────────
             _ReportSection(
               icon: Icons.timeline,
               iconColor: Colors.teal[700]!,
@@ -177,8 +532,6 @@ class FinalReportPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-
-            // ── AI damage assessment ───────────────────────────────────────
             _ReportSection(
               icon: Icons.auto_awesome,
               iconColor: Colors.orange[700]!,
@@ -187,15 +540,19 @@ class FinalReportPage extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (_damages.isEmpty)
-                    const Text('No damages detected',
-                        style: TextStyle(color: Colors.green))
+                    const Text(
+                      'No damages detected',
+                      style: TextStyle(color: Colors.green),
+                    )
                   else
                     ..._damages.map((damage) {
                       final conf = _confidences[damage];
                       return Container(
                         margin: const EdgeInsets.only(bottom: 6),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.red[50],
                           borderRadius: BorderRadius.circular(8),
@@ -207,12 +564,16 @@ class FinalReportPage extends StatelessWidget {
                             Text(
                               damage.replaceAll('_', ' ').toUpperCase(),
                               style: const TextStyle(
-                                  fontWeight: FontWeight.w600, fontSize: 13),
+                                fontWeight: FontWeight.w600,
+                                fontSize: 13,
+                              ),
                             ),
                             if (conf != null)
                               Container(
                                 padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 3),
+                                  horizontal: 10,
+                                  vertical: 3,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.blue[700],
                                   borderRadius: BorderRadius.circular(12),
@@ -235,7 +596,9 @@ class FinalReportPage extends StatelessWidget {
                     const SizedBox(height: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.blue[50],
                         borderRadius: BorderRadius.circular(8),
@@ -244,8 +607,10 @@ class FinalReportPage extends StatelessWidget {
                         children: [
                           Icon(Icons.build, size: 15, color: Colors.blue[700]),
                           const SizedBox(width: 6),
-                          const Text('Affected Part: ',
-                              style: TextStyle(fontWeight: FontWeight.w600)),
+                          const Text(
+                            'Affected Part: ',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
                           Text(
                             _pm['affected_part']
                                 .toString()
@@ -264,8 +629,6 @@ class FinalReportPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-
-            // ── Predicted cost breakdown ──────────────────────────────────
             _ReportSection(
               icon: Icons.receipt_long,
               iconColor: Colors.orange[700]!,
@@ -278,8 +641,7 @@ class FinalReportPage extends StatelessWidget {
                       iconColor: Colors.blue[700]!,
                       bgColor: Colors.blue[50]!,
                       label: 'Parts & Materials',
-                      value:
-                          '$_currency ${_fmt(_breakdown['parts'] as num)}',
+                      value: '$_currency ${_fmt(_breakdown['parts'] as num)}',
                     ),
                   if (_breakdown['paint'] != null)
                     _CostRow(
@@ -287,8 +649,7 @@ class FinalReportPage extends StatelessWidget {
                       iconColor: Colors.purple[700]!,
                       bgColor: Colors.purple[50]!,
                       label: 'Paint & Finishing',
-                      value:
-                          '$_currency ${_fmt(_breakdown['paint'] as num)}',
+                      value: '$_currency ${_fmt(_breakdown['paint'] as num)}',
                     ),
                   if (_aiPrice != null) ...[
                     const Divider(thickness: 1.5),
@@ -304,16 +665,18 @@ class FinalReportPage extends StatelessWidget {
                           const Text(
                             'AI PREDICTED TOTAL',
                             style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                fontSize: 13),
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              fontSize: 13,
+                            ),
                           ),
                           Text(
                             '$_currency ${_fmt(_aiPrice!)}',
                             style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                fontSize: 18),
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              fontSize: 18,
+                            ),
                           ),
                         ],
                       ),
@@ -323,8 +686,6 @@ class FinalReportPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-
-            // ── Insurer decision ──────────────────────────────────────────
             _ReportSection(
               icon: Icons.gavel,
               iconColor: _decision == 'confirmed'
@@ -334,10 +695,11 @@ class FinalReportPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Badge
                   Container(
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 8),
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: _decision == 'confirmed'
                           ? Colors.green[50]
@@ -377,7 +739,6 @@ class FinalReportPage extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  // Final cost box
                   if (_finalCost != null)
                     Container(
                       width: double.infinity,
@@ -393,10 +754,11 @@ class FinalReportPage extends StatelessWidget {
                           Text(
                             'FINAL APPROVED COST',
                             style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey[600],
-                                letterSpacing: 0.5),
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.grey[600],
+                              letterSpacing: 0.5,
+                            ),
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -410,7 +772,6 @@ class FinalReportPage extends StatelessWidget {
                         ],
                       ),
                     ),
-                  // Notes
                   if (claim['notes'] != null &&
                       claim['notes'].toString().isNotEmpty) ...[
                     const SizedBox(height: 10),
@@ -427,15 +788,19 @@ class FinalReportPage extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              Icon(Icons.notes,
-                                  size: 15, color: Colors.amber[800]),
+                              Icon(
+                                Icons.notes,
+                                size: 15,
+                                color: Colors.amber[800],
+                              ),
                               const SizedBox(width: 6),
                               Text(
                                 'Insurer Notes',
                                 style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                    color: Colors.amber[800]),
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Colors.amber[800],
+                                ),
                               ),
                             ],
                           ),
@@ -452,8 +817,6 @@ class FinalReportPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 12),
-
-            // ── Cost comparison (only if adjusted) ────────────────────────
             if (_decision == 'adjusted' &&
                 _aiPrice != null &&
                 _finalCost != null) ...[
@@ -474,26 +837,26 @@ class FinalReportPage extends StatelessWidget {
                       valueColor: Colors.blue[800]!,
                     ),
                     const Divider(thickness: 1),
-                    Builder(builder: (context) {
-                      final diff = _finalCost! - _aiPrice!;
-                      final isHigher = diff > 0;
-                      final diffStr =
-                          '${isHigher ? '+' : ''}$_currency ${_fmt(diff.abs())}';
-                      return _CompareRow(
-                        label: 'Difference',
-                        value: isHigher ? '▲ $diffStr' : '▼ $diffStr',
-                        valueColor:
-                            isHigher ? Colors.red[700]! : Colors.green[700]!,
-                        bold: true,
-                      );
-                    }),
+                    Builder(
+                      builder: (context) {
+                        final diff = _finalCost! - _aiPrice!;
+                        final isHigher = diff > 0;
+                        final diffStr =
+                            '${isHigher ? '+' : ''}$_currency ${_fmt(diff.abs())}';
+                        return _CompareRow(
+                          label: 'Difference',
+                          value: isHigher ? '^ $diffStr' : 'v $diffStr',
+                          valueColor:
+                              isHigher ? Colors.red[700]! : Colors.green[700]!,
+                          bold: true,
+                        );
+                      },
+                    ),
                   ],
                 ),
               ),
               const SizedBox(height: 12),
             ],
-
-            // ── Footer ────────────────────────────────────────────────────
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Text(
@@ -501,7 +864,10 @@ class FinalReportPage extends StatelessWidget {
                 'AI predictions are indicative only. Final cost is determined by the insurer.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                    fontSize: 11, color: Colors.grey[500], height: 1.5),
+                  fontSize: 11,
+                  color: Colors.grey[500],
+                  height: 1.5,
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -522,9 +888,10 @@ class FinalReportPage extends StatelessWidget {
             child: Text(
               '$key:',
               style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                  color: Colors.grey[700]),
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: Colors.grey[700],
+              ),
             ),
           ),
           Expanded(
@@ -532,7 +899,9 @@ class FinalReportPage extends StatelessWidget {
                 ? SelectableText(
                     value,
                     style: const TextStyle(
-                        fontSize: 12, fontFamily: 'monospace'),
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                    ),
                   )
                 : Text(value, style: const TextStyle(fontSize: 13)),
           ),
@@ -541,8 +910,6 @@ class FinalReportPage extends StatelessWidget {
     );
   }
 }
-
-// ─── Sub-widgets ───────────────────────────────────────────────────────────────
 
 class _ReportCard extends StatelessWidget {
   final Widget child;
@@ -596,7 +963,9 @@ class _ReportSection extends StatelessWidget {
               Text(
                 title,
                 style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.bold),
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -628,7 +997,6 @@ class _TimelineEvent extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Icon + line
         Column(
           children: [
             Container(
@@ -654,13 +1022,18 @@ class _TimelineEvent extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 13)),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text(date,
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey[600])),
+                Text(
+                  date,
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
               ],
             ),
           ),
@@ -704,9 +1077,10 @@ class _CostRow extends StatelessWidget {
               Text(label, style: const TextStyle(fontSize: 13)),
             ],
           ),
-          Text(value,
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold, fontSize: 13)),
+          Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
         ],
       ),
     );

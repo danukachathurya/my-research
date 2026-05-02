@@ -8,7 +8,6 @@ import '../../common/insurance_claim_service.dart';
 import '../models/damage_detection_result.dart';
 import '../models/garage_recommendation.dart';
 import '../services/damage_detection_service.dart';
-import '../utils/label_formatters.dart';
 import '../widgets/assessment_result_sections.dart';
 import 'garage_list_screen.dart';
 import 'spare_parts_bids_screen.dart';
@@ -208,11 +207,15 @@ class _ResultScreenState extends State<ResultScreen> {
         return;
       }
 
+      final damageImagePayload = await _insuranceClaimService
+          .buildDamageImagePayload(widget.imageFile);
+
       await _insuranceClaimService.notifyInsurer(
         claimId: claimId,
         insurerId: insurerId,
         latitude: widget.latitude,
         longitude: widget.longitude,
+        damageImage: damageImagePayload,
       );
 
       if (!mounted) {

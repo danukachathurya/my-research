@@ -1,8 +1,10 @@
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 
 import 'api_config.dart';
 
@@ -27,6 +29,15 @@ class InsuranceClaimService {
       baseSegments.removeLast();
     }
     return uri.replace(pathSegments: [...baseSegments, 'insurers']);
+  }
+
+  Uri _claimUri(String claimId) {
+    final uri = Uri.parse(_assessUrl);
+    final baseSegments = List<String>.from(uri.pathSegments);
+    if (baseSegments.isNotEmpty && baseSegments.last == 'assess') {
+      baseSegments.removeLast();
+    }
+    return uri.replace(pathSegments: [...baseSegments, 'claims', claimId]);
   }
 
   String insurerDisplayName(Map<String, dynamic> insurer) {
@@ -78,9 +89,24 @@ class InsuranceClaimService {
         .toList();
   }
 
+  Future<Map<String, dynamic>> fetchClaim(String claimId) async {
+    final response = await http.get(_claimUri(claimId));
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception('Failed to load claim: ${response.statusCode}');
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! Map) {
+      throw Exception('Invalid claim response format');
+    }
+
+    return Map<String, dynamic>.from(decoded);
+  }
+
   Future<List<Map<String, dynamic>>> fetchInsurersFromFirestore() async {
-    final docs =
-        await FirebaseFirestore.instance.collection('insurer_partners').get();
+    final docs = await FirebaseFirestore.instance
+        .collection('insurer_partners')
+        .get();
 
     return docs.docs
         .map((doc) {
@@ -146,11 +172,15 @@ class InsuranceClaimService {
     required String insurerId,
     double? latitude,
     double? longitude,
+    Map<String, dynamic>? damageImage,
   }) async {
     final body = <String, dynamic>{'insurer_id': insurerId};
     if (latitude != null && longitude != null) {
       body['latitude'] = latitude;
       body['longitude'] = longitude;
+    }
+    if (damageImage != null && damageImage.isNotEmpty) {
+      body['damage_image'] = damageImage;
     }
 
     final response = await http.post(
@@ -175,5 +205,54 @@ class InsuranceClaimService {
       }
     }
     throw Exception(message);
+  }
+
+  Future<Map<String, dynamic>?> buildDamageImagePayload(File imageFile) async {
+    try {
+      final bytes = await imageFile.readAsBytes();
+      final decoded = img.decodeImage(bytes);
+      if (decoded == null) {
+        return null;
+      }
+
+      var normalized = img.bakeOrientation(decoded);
+      const maxDimension = 960;
+      if (normalized.width > maxDimension || normalized.height > maxDimension) {
+        if (normalized.width >= normalized.height) {
+          normalized = img.copyResize(
+            normalized,
+            width: maxDimension,
+            interpolation: img.Interpolation.average,
+          );
+        } else {
+          normalized = img.copyResize(
+            normalized,
+            height: maxDimension,
+            interpolation: img.Interpolation.average,
+          );
+        }
+      }
+
+      var quality = 72;
+      List<int> encoded = img.encodeJpg(normalized, quality: quality);
+      while (encoded.length > 180000 && quality > 48) {
+        quality -= 12;
+        encoded = img.encodeJpg(normalized, quality: quality);
+      }
+
+      final filename = imageFile.uri.pathSegments.isNotEmpty
+          ? imageFile.uri.pathSegments.last
+          : 'damage_image.jpg';
+
+      return <String, dynamic>{
+        'filename': filename,
+        'content_type': 'image/jpeg',
+        'data_base64': base64Encode(encoded),
+        'width': normalized.width,
+        'height': normalized.height,
+      };
+    } catch (_) {
+      return null;
+    }
   }
 }

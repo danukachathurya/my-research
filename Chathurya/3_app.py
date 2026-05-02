@@ -8,6 +8,7 @@ import os
 import io
 import re
 import json
+import base64
 import hashlib
 import firebase_admin
 import torch
@@ -16,7 +17,7 @@ import uuid
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
-from PIL import Image
+from PIL import Image, ImageOps
 
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Body
 from fastapi.responses import JSONResponse
@@ -120,6 +121,69 @@ db = get_db()
 
 def compute_image_hash(image_bytes: bytes) -> str:
     return hashlib.sha256(image_bytes).hexdigest()
+
+
+MAX_CLAIM_IMAGE_BYTES = 180_000
+CLAIM_IMAGE_MAX_DIMENSIONS = (960, 720, 540)
+CLAIM_IMAGE_JPEG_QUALITIES = (72, 60, 48)
+
+
+def build_claim_image_attachment(image_bytes: bytes, image_hash: str) -> Dict[str, object]:
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as source_image:
+            working_image = ImageOps.exif_transpose(source_image)
+            if working_image.mode != "RGB":
+                working_image = working_image.convert("RGB")
+
+            final_bytes = b""
+            final_width, final_height = working_image.size
+
+            for max_dimension in CLAIM_IMAGE_MAX_DIMENSIONS:
+                resized_image = working_image.copy()
+                resized_image.thumbnail(
+                    (max_dimension, max_dimension),
+                    Image.Resampling.LANCZOS,
+                )
+
+                for quality in CLAIM_IMAGE_JPEG_QUALITIES:
+                    buffer = io.BytesIO()
+                    resized_image.save(
+                        buffer,
+                        format="JPEG",
+                        quality=quality,
+                        optimize=True,
+                    )
+                    candidate_bytes = buffer.getvalue()
+                    final_bytes = candidate_bytes
+                    final_width, final_height = resized_image.size
+
+                    if len(candidate_bytes) <= MAX_CLAIM_IMAGE_BYTES:
+                        return {
+                            "filename": f"{image_hash[:16]}.jpg",
+                            "content_type": "image/jpeg",
+                            "data_base64": base64.b64encode(candidate_bytes).decode("ascii"),
+                            "width": final_width,
+                            "height": final_height,
+                            "image_hash": image_hash,
+                        }
+
+            return {
+                "filename": f"{image_hash[:16]}.jpg",
+                "content_type": "image/jpeg",
+                "data_base64": base64.b64encode(final_bytes).decode("ascii"),
+                "width": final_width,
+                "height": final_height,
+                "image_hash": image_hash,
+            }
+    except Exception:
+        return {
+            "filename": f"{image_hash[:16]}.jpg",
+            "content_type": "image/jpeg",
+            "data_base64": "",
+            "width": 0,
+            "height": 0,
+            "image_hash": image_hash,
+        }
 
 
 def infer_reported_affected_part(
@@ -889,6 +953,15 @@ class AssessmentResponse(BaseModel):
     ai_validation: Optional[dict] = None
     processing_time_seconds: float
 
+
+class ClaimImageAttachment(BaseModel):
+    filename: Optional[str] = None
+    content_type: Optional[str] = None
+    data_base64: str
+    width: Optional[int] = None
+    height: Optional[int] = None
+    image_hash: Optional[str] = None
+
 class HealthResponse(BaseModel):
     status: str
     models_loaded: bool
@@ -1117,6 +1190,7 @@ async def assess_damage(
         response["image_hash"] = img_hash
 
         ai_response_dict = response
+        claim_image_attachment = build_claim_image_attachment(image_bytes, img_hash)
         claim_payload = {
             "vehicle": {
                 "brand": vehicle_brand,
@@ -1124,6 +1198,7 @@ async def assess_damage(
                 "year": vehicle_year,
             },
             "image_hash": img_hash,
+            "damage_image": claim_image_attachment,
             "status": "ai_generated",
             "ai_result": ai_response_dict,
             "created_at": datetime.utcnow().isoformat(),
@@ -1190,6 +1265,38 @@ class NotifyInsurerRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     location_address: Optional[str] = None
+    damage_image: Optional[ClaimImageAttachment] = None
+
+
+def normalize_claim_image_attachment(
+    attachment: Optional[ClaimImageAttachment],
+) -> Optional[Dict[str, object]]:
+    if attachment is None:
+        return None
+
+    data_base64 = attachment.data_base64.strip()
+    if not data_base64:
+        return None
+
+    try:
+        decoded_bytes = base64.b64decode(data_base64, validate=True)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid damage image attachment.") from exc
+
+    if len(decoded_bytes) > MAX_CLAIM_IMAGE_BYTES * 2:
+        raise HTTPException(
+            status_code=413,
+            detail="Damage image attachment is too large.",
+        )
+
+    return {
+        "filename": (attachment.filename or "claim_damage.jpg").strip(),
+        "content_type": (attachment.content_type or "image/jpeg").strip(),
+        "data_base64": data_base64,
+        "width": attachment.width or 0,
+        "height": attachment.height or 0,
+        "image_hash": (attachment.image_hash or "").strip(),
+    }
 
 
 @app.post("/claims/{claim_id}/notify")
@@ -1215,6 +1322,10 @@ def notify_insurer(claim_id: str, body: NotifyInsurerRequest):
                 f"&query={body.latitude},{body.longitude}"
             ),
         }
+
+    damage_image = normalize_claim_image_attachment(body.damage_image)
+    if damage_image is not None:
+        update_payload["damage_image"] = damage_image
 
     try:
         claim_ref.update(update_payload)
@@ -1260,6 +1371,13 @@ def list_claims():
         .stream()
     )
     return [{"id": d.id, **d.to_dict()} for d in docs]
+
+@app.get("/claims/{claim_id}")
+def get_claim(claim_id: str):
+    doc = db.collection("claims").document(claim_id).get()
+    if not doc.exists:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    return {"id": doc.id, **doc.to_dict()}
 
 @app.patch("/claims/{claim_id}/decision")
 def submit_decision(
