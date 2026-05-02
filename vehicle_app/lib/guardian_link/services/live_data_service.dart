@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:developer' as developer;
+
 import 'package:firebase_database/firebase_database.dart';
+
 import '../models/live_data_model.dart';
 
 class LiveDataService {
@@ -12,6 +15,23 @@ class LiveDataService {
   );
   final Map<String, StreamSubscription<DatabaseEvent>> _subscriptions = {};
 
+  LiveData? _parseLiveDataSnapshot(String userId, DataSnapshot snapshot) {
+    if (!snapshot.exists || snapshot.value == null) {
+      return null;
+    }
+
+    final rawValue = snapshot.value;
+    if (rawValue is! Map) {
+      throw const FormatException('Unexpected live data format.');
+    }
+
+    final jsonData = Map<String, dynamic>.from(
+      rawValue.map((key, value) => MapEntry(key.toString(), value)),
+    );
+
+    return LiveData.fromJson(userId, jsonData);
+  }
+
   /// Listen to live data updates for a specific user
   Stream<LiveData?> getLiveDataStream(String userId) {
     final controller = StreamController<LiveData?>();
@@ -21,13 +41,11 @@ class LiveDataService {
         .onValue
         .listen(
           (event) {
-            if (event.snapshot.exists) {
-              final data = event.snapshot.value as Map<dynamic, dynamic>;
-              final jsonData = Map<String, dynamic>.from(data);
-              final liveData = LiveData.fromJson(userId, jsonData);
+            try {
+              final liveData = _parseLiveDataSnapshot(userId, event.snapshot);
               controller.add(liveData);
-            } else {
-              controller.add(null);
+            } catch (error) {
+              controller.addError(error);
             }
           },
           onError: (error) {
@@ -54,10 +72,20 @@ class LiveDataService {
     ) {
       final alerts = <LiveData>[];
       if (event.snapshot.exists) {
-        final data = event.snapshot.value as Map<dynamic, dynamic>;
+        final data = event.snapshot.value;
+        if (data is! Map) {
+          return alerts;
+        }
+
         data.forEach((userId, userData) {
-          final jsonData = Map<String, dynamic>.from(userData as Map);
-          alerts.add(LiveData.fromJson(userId as String, jsonData));
+          if (userData is! Map) {
+            return;
+          }
+
+          final jsonData = Map<String, dynamic>.from(
+            userData.map((key, value) => MapEntry(key.toString(), value)),
+          );
+          alerts.add(LiveData.fromJson(userId.toString(), jsonData));
         });
       }
       return alerts;
@@ -68,14 +96,13 @@ class LiveDataService {
   Future<LiveData?> getLiveDataOnce(String userId) async {
     try {
       final snapshot = await _liveDataRef.child(userId).get();
-      if (snapshot.exists) {
-        final data = snapshot.value as Map<dynamic, dynamic>;
-        final jsonData = Map<String, dynamic>.from(data);
-        return LiveData.fromJson(userId, jsonData);
-      }
-      return null;
+      return _parseLiveDataSnapshot(userId, snapshot);
     } catch (e) {
-      print('Error getting live data: $e');
+      developer.log(
+        'Error getting live data',
+        name: 'LiveDataService',
+        error: e,
+      );
       return null;
     }
   }
@@ -88,7 +115,11 @@ class LiveDataService {
     try {
       await _liveDataRef.child(userId).update(updates);
     } catch (e) {
-      print('Error updating live data: $e');
+      developer.log(
+        'Error updating live data',
+        name: 'LiveDataService',
+        error: e,
+      );
       rethrow;
     }
   }
@@ -98,7 +129,11 @@ class LiveDataService {
     try {
       await _liveDataRef.child(userId).set(data);
     } catch (e) {
-      print('Error setting live data: $e');
+      developer.log(
+        'Error setting live data',
+        name: 'LiveDataService',
+        error: e,
+      );
       rethrow;
     }
   }
@@ -123,7 +158,11 @@ class LiveDataService {
       final snapshot = await _liveDataRef.child(userId).get();
       return snapshot.exists;
     } catch (e) {
-      print('Error checking live data: $e');
+      developer.log(
+        'Error checking live data availability',
+        name: 'LiveDataService',
+        error: e,
+      );
       return false;
     }
   }
