@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'dart:convert';
+import '../common/insurance_claim_service.dart';
 import 'final_report_page.dart';
 
 // ─── ClaimHistoryPage ─────────────────────────────────────────────────────────
@@ -20,12 +23,14 @@ class ClaimHistoryPage extends StatefulWidget {
 }
 
 class _ClaimHistoryPageState extends State<ClaimHistoryPage> {
+  final InsuranceClaimService _insuranceClaimService = InsuranceClaimService();
+  StreamSubscription<User?>? _authSubscription;
   List<Map<String, dynamic>> _claims = [];
   bool _isLoading = false;
   String? _errorMessage;
 
   // ── URL helper ──────────────────────────────────────────────────────────────
-  String get _claimsUrl {
+  Uri _buildClaimsUri(String ownerUid) {
     var base = Uri.decodeFull(widget.baseApiUrl).trim();
     if (!base.contains('://')) {
       base = 'http://$base';
@@ -36,15 +41,27 @@ class _ClaimHistoryPageState extends State<ClaimHistoryPage> {
       throw const FormatException('Invalid API URL configuration');
     }
 
-    return parsed
-        .replace(pathSegments: [...parsed.pathSegments, 'claims']).toString();
+    return parsed.replace(
+      pathSegments: [...parsed.pathSegments, 'claims'],
+      queryParameters: {'owner_uid': ownerUid},
+    );
   }
 
   // ── Lifecycle ────────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((_) {
+      if (!mounted) return;
+      _loadClaims();
+    });
     _loadClaims();
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
   }
 
   // ── Data fetching ────────────────────────────────────────────────────────────
@@ -55,8 +72,18 @@ class _ClaimHistoryPageState extends State<ClaimHistoryPage> {
     });
 
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null || user.uid.trim().isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _claims = [];
+          _isLoading = false;
+        });
+        return;
+      }
+
       final response = await http
-          .get(Uri.parse(_claimsUrl))
+          .get(_buildClaimsUri(user.uid.trim()))
           .timeout(const Duration(seconds: 15));
 
       if (!mounted) return;
@@ -289,8 +316,46 @@ class _ClaimHistoryPageState extends State<ClaimHistoryPage> {
       builder: (context) => _ClaimDetailSheet(
         claim: claim,
         formatDate: _formatDate,
+        onOpenFinalReport: () => _openFinalReport(context, claim),
       ),
     );
+  }
+
+  Future<void> _openFinalReport(
+    BuildContext context,
+    Map<String, dynamic> claim,
+  ) async {
+    final latestClaim = await _loadLatestClaim(claim);
+
+    if (!context.mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FinalReportPage(
+          claim: latestClaim,
+          formatDate: _formatDate,
+        ),
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>> _loadLatestClaim(
+    Map<String, dynamic> claim,
+  ) async {
+    final claimId = claim['id']?.toString().trim();
+    var latestClaim = claim;
+
+    if (claimId != null && claimId.isNotEmpty) {
+      try {
+        latestClaim = await _insuranceClaimService.fetchClaim(claimId);
+      } catch (_) {
+        // Fall back to the currently loaded claim if refresh fails.
+      }
+    }
+
+    return latestClaim;
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────────
@@ -383,10 +448,12 @@ class _ClaimHistoryPageState extends State<ClaimHistoryPage> {
 class _ClaimDetailSheet extends StatelessWidget {
   final Map<String, dynamic> claim;
   final String Function(dynamic) formatDate;
+  final VoidCallback onOpenFinalReport;
 
   const _ClaimDetailSheet({
     required this.claim,
     required this.formatDate,
+    required this.onOpenFinalReport,
   });
 
   @override
@@ -671,14 +738,7 @@ class _ClaimDetailSheet extends StatelessWidget {
                   if (claim['status'] == 'decision_submitted') ...[
                     const SizedBox(height: 8),
                     ElevatedButton.icon(
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => FinalReportPage(
-                            claim: claim,
-                            formatDate: formatDate,
-                          ),
-                        ),
-                      ),
+                      onPressed: onOpenFinalReport,
                       icon: const Icon(Icons.summarize),
                       label: const Text('View Final Report'),
                       style: ElevatedButton.styleFrom(

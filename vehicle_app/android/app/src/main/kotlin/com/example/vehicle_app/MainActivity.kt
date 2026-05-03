@@ -1,4 +1,4 @@
-package com.example.vehicle_app
+package com.example.launcher_app
 
 import io.flutter.embedding.android.FlutterActivity
 

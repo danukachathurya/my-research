@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'dart:typed_data';
+import '../common/insurance_claim_service.dart';
 import '../vehicle_damage/final_report_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -703,6 +705,7 @@ class _InsurerDecisionSheet extends StatefulWidget {
 class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
   late final TextEditingController _costController;
   final TextEditingController _notesController = TextEditingController();
+  final InsuranceClaimService _insuranceClaimService = InsuranceClaimService();
   bool _isSubmitting = false;
 
   @override
@@ -741,6 +744,97 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
     } catch (_) {
       return 'LKR';
     }
+  }
+
+  Map<String, dynamic>? _getDamageImage() {
+    final candidates = <dynamic>[
+      widget.claim['damage_image'],
+      widget.claim['damageImage'],
+      widget.claim['ai_result']?['damage_image'],
+      widget.claim['ai_result']?['damageImage'],
+    ];
+
+    for (final raw in candidates) {
+      if (raw is Map) {
+        return Map<String, dynamic>.from(raw);
+      }
+
+      if (raw is String) {
+        final trimmed = raw.trim();
+        if (trimmed.isEmpty) {
+          continue;
+        }
+
+        try {
+          final decoded = jsonDecode(trimmed);
+          if (decoded is Map) {
+            return Map<String, dynamic>.from(decoded);
+          }
+        } catch (_) {
+          // Ignore malformed JSON strings and continue checking fallbacks.
+        }
+      }
+    }
+
+    return null;
+  }
+
+  Uint8List? _decodeDamageImageBytes(Map<String, dynamic>? damageImage) {
+    var encoded =
+        (damageImage?['data_base64'] ??
+                damageImage?['base64'] ??
+                damageImage?['bytes_base64'] ??
+                damageImage?['data'])
+            ?.toString()
+            .trim();
+    if (encoded == null || encoded.isEmpty) {
+      return null;
+    }
+
+    if (encoded.startsWith('data:')) {
+      final commaIndex = encoded.indexOf(',');
+      if (commaIndex != -1 && commaIndex < encoded.length - 1) {
+        encoded = encoded.substring(commaIndex + 1).trim();
+      }
+    }
+
+    encoded = encoded.replaceAll(RegExp(r'\s+'), '');
+    final remainder = encoded.length % 4;
+    if (remainder != 0) {
+      encoded = '$encoded${'=' * (4 - remainder)}';
+    }
+
+    try {
+      return base64Decode(encoded);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _openFinalReport(Map<String, dynamic> claim) async {
+    final claimId = claim['id']?.toString().trim();
+    var latestClaim = claim;
+
+    if (claimId != null && claimId.isNotEmpty) {
+      try {
+        latestClaim = await _insuranceClaimService.fetchClaim(claimId);
+      } catch (_) {
+        // Fall back to the currently loaded claim if refresh fails.
+      }
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FinalReportPage(
+          claim: latestClaim,
+          formatDate: widget.formatDate,
+        ),
+      ),
+    );
   }
 
   Future<void> _submitDecision(String decision) async {
@@ -830,6 +924,8 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
     final breakdown = pe['breakdown'] as Map? ?? {};
     final estimatedPrice = pe['estimated_price'];
     final currency = _getCurrency();
+    final damageImage = _getDamageImage();
+    final damageImageBytes = _decodeDamageImageBytes(damageImage);
     final claimId = claim['id']?.toString() ?? 'N/A';
     final damages =
         (dd['detected_damages'] as List?)?.map((d) => d.toString()).toList() ??
@@ -900,6 +996,24 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
                     ),
                   ),
                   const SizedBox(height: 12),
+
+                  if (damageImageBytes != null) ...[
+                    _ISection(
+                      icon: Icons.photo_camera_outlined,
+                      iconColor: Colors.indigo[700]!,
+                      title: 'Uploaded Damage Photo',
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.memory(
+                          damageImageBytes,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: 220,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
 
                   _ISection(
                     icon: Icons.directions_car,
@@ -1259,14 +1373,7 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
                           ],
                           const SizedBox(height: 14),
                           ElevatedButton.icon(
-                            onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => FinalReportPage(
-                                  claim: claim,
-                                  formatDate: widget.formatDate,
-                                ),
-                              ),
-                            ),
+                            onPressed: () => _openFinalReport(claim),
                             icon: const Icon(Icons.summarize),
                             label: const Text('View Final Report'),
                             style: ElevatedButton.styleFrom(

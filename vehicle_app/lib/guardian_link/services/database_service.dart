@@ -5,9 +5,10 @@ import '../models/vehicle_model.dart';
 import '../models/guardian_model.dart';
 import '../models/user_model.dart';
 import '../models/accident_report_model.dart';
+import 'guardian_firebase.dart';
 
 class DatabaseService {
-  final FirebaseDatabase _database = FirebaseDatabase.instance;
+  FirebaseDatabase get _database => GuardianFirebase.database;
 
   // ============== Hospital Operations ==============
 
@@ -21,6 +22,7 @@ class DatabaseService {
     required String adminId,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       String hospitalId = _database.ref('hospitals').push().key!;
 
       final hospital = HospitalModel(
@@ -45,6 +47,7 @@ class DatabaseService {
   // Get hospital by ID
   Future<HospitalModel?> getHospitalById(String hospitalId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('hospitals/$hospitalId').get();
       if (snapshot.exists) {
         return HospitalModel.fromJson(snapshot.value as Map<dynamic, dynamic>);
@@ -60,6 +63,7 @@ class DatabaseService {
     List<HospitalModel> hospitals = [];
 
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('hospitals').get();
 
       if (snapshot.exists) {
@@ -85,6 +89,7 @@ class DatabaseService {
     double? longitude,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       Map<String, dynamic> updates = {
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
@@ -104,6 +109,7 @@ class DatabaseService {
   // Delete hospital
   Future<void> deleteHospital(String hospitalId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _database.ref('hospitals/$hospitalId').remove();
     } catch (e) {
       throw Exception('Failed to delete hospital: $e');
@@ -122,6 +128,7 @@ class DatabaseService {
     required String adminId,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       String policeId = _database.ref('police').push().key!;
 
       final police = PoliceModel(
@@ -146,6 +153,7 @@ class DatabaseService {
   // Get police station by ID
   Future<PoliceModel?> getPoliceStationById(String policeId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('police/$policeId').get();
       if (snapshot.exists) {
         return PoliceModel.fromJson(snapshot.value as Map<dynamic, dynamic>);
@@ -159,6 +167,7 @@ class DatabaseService {
   // Get all police stations
   Future<List<PoliceModel>> getAllPoliceStations() async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('police').get();
       List<PoliceModel> policeStations = [];
 
@@ -187,6 +196,7 @@ class DatabaseService {
     double? longitude,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       Map<String, dynamic> updates = {
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
@@ -206,6 +216,7 @@ class DatabaseService {
   // Delete police station
   Future<void> deletePoliceStation(String policeId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _database.ref('police/$policeId').remove();
     } catch (e) {
       throw Exception('Failed to delete police station: $e');
@@ -222,6 +233,7 @@ class DatabaseService {
     required String userId,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       String vehicleId = _database.ref('vehicles').push().key!;
 
       final vehicle = VehicleModel(
@@ -244,6 +256,7 @@ class DatabaseService {
   // Get vehicle by ID
   Future<VehicleModel?> getVehicleById(String vehicleId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('vehicles/$vehicleId').get();
       if (snapshot.exists) {
         return VehicleModel.fromJson(snapshot.value as Map<dynamic, dynamic>);
@@ -257,6 +270,7 @@ class DatabaseService {
   // Get all vehicles for a user
   Future<List<VehicleModel>> getUserVehicles(String userId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('vehicles').get();
       List<VehicleModel> vehicles = [];
 
@@ -284,6 +298,7 @@ class DatabaseService {
     String? registrationNumber,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       Map<String, dynamic> updates = {
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
@@ -302,6 +317,7 @@ class DatabaseService {
   // Delete vehicle
   Future<void> deleteVehicle(String vehicleId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _database.ref('vehicles/$vehicleId').remove();
     } catch (e) {
       throw Exception('Failed to delete vehicle: $e');
@@ -320,6 +336,7 @@ class DatabaseService {
     String? email,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       String guardianId = _database.ref('guardians').push().key!;
 
       final guardian = GuardianModel(
@@ -344,6 +361,7 @@ class DatabaseService {
   // Get guardian by ID
   Future<GuardianModel?> getGuardianById(String guardianId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('guardians/$guardianId').get();
       if (snapshot.exists) {
         return GuardianModel.fromJson(snapshot.value as Map<dynamic, dynamic>);
@@ -357,6 +375,7 @@ class DatabaseService {
   // Get all guardians for a user
   Future<GuardianModel?> getUserGuardian(String userId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       print(userId);
 
       final snapshot = await _database.ref('users/$userId').get();
@@ -390,6 +409,7 @@ class DatabaseService {
     String? email,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       Map<String, dynamic> updates = {
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
@@ -409,6 +429,7 @@ class DatabaseService {
   // Delete guardian
   Future<void> deleteGuardian(String guardianId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _database.ref('guardians/$guardianId').remove();
     } catch (e) {
       throw Exception('Failed to delete guardian: $e');
@@ -422,6 +443,7 @@ class DatabaseService {
     List<UserModel> users = [];
 
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('users').get();
 
       if (snapshot.exists) {
@@ -440,6 +462,7 @@ class DatabaseService {
   // Get user by ID
   Future<UserModel?> getUserById(String userId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('users/$userId').get();
       if (snapshot.exists) {
         return UserModel.fromJson(snapshot.value as Map<dynamic, dynamic>);
@@ -465,6 +488,7 @@ class DatabaseService {
     String? linkedUserId,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       Map<String, dynamic> updates = {
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
@@ -490,6 +514,7 @@ class DatabaseService {
   // Delete user
   Future<void> deleteUser(String userId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _database.ref('users/$userId').remove();
     } catch (e) {
       throw Exception('Failed to delete user: $e');
@@ -499,6 +524,7 @@ class DatabaseService {
   // Get user by email
   Future<UserModel?> getUserByEmail(String email) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('users').get();
       if (snapshot.exists) {
         final data = snapshot.value as Map<dynamic, dynamic>;
@@ -521,6 +547,7 @@ class DatabaseService {
     required String policeStationId,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _database
           .ref('police_station_users/$policeStationId/$userId')
           .set(true);
@@ -538,6 +565,7 @@ class DatabaseService {
     required String hospitalId,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _database.ref('hospital_users/$hospitalId/$userId').set(true);
       await _database.ref('user_hospitals/$userId/$hospitalId').set({
         'mappedAt': DateTime.now().millisecondsSinceEpoch,
@@ -551,6 +579,7 @@ class DatabaseService {
   Future<List<UserModel>> getPoliceStationUsers(String policeStationId) async {
     List<UserModel> users = [];
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database
           .ref('police_station_users/$policeStationId')
           .get();
@@ -573,6 +602,7 @@ class DatabaseService {
   Future<List<UserModel>> getHospitalUsers(String hospitalId) async {
     List<UserModel> users = [];
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('hospital_users/$hospitalId').get();
       if (snapshot.exists) {
         final userIds = (snapshot.value as Map<dynamic, dynamic>).keys;
@@ -607,6 +637,7 @@ class DatabaseService {
     required String prediction,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       String reportId = _database.ref('accident_reports').push().key!;
 
       final report = AccidentReportModel(
@@ -644,6 +675,7 @@ class DatabaseService {
   ) async {
     List<AccidentReportModel> reports = [];
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database
           .ref('responder_reports/$responderId')
           .get();
@@ -677,6 +709,7 @@ class DatabaseService {
     String status,
   ) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _database.ref('accident_reports/$reportId').update({
         'status': status,
       });

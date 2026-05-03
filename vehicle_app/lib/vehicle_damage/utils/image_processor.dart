@@ -64,6 +64,7 @@ class AssessmentRequest {
   final String vehicleYear;
   final String apiUrl;
   final bool useAi;
+  final String? userUid;
 
   AssessmentRequest({
     required this.imagePaths,
@@ -72,6 +73,7 @@ class AssessmentRequest {
     required this.vehicleYear,
     required this.apiUrl,
     this.useAi = true,
+    this.userUid,
   });
 
   Map<String, dynamic> toJson() => {
@@ -81,6 +83,7 @@ class AssessmentRequest {
         'vehicleYear': vehicleYear,
         'apiUrl': apiUrl,
         'useAi': useAi,
+        'userUid': userUid,
       };
 }
 
@@ -188,6 +191,7 @@ Future<Map<String, dynamic>> _processDamageAssessmentIsolate(
   final vehicleYear = params['vehicleYear'] as String;
   final apiUrl = params['apiUrl'] as String;
   final useAi = params['useAi'] as bool;
+  final userUid = params['userUid']?.toString().trim();
 
   Map<String, dynamic> combinedResult = {};
 
@@ -204,6 +208,9 @@ Future<Map<String, dynamic>> _processDamageAssessmentIsolate(
     request.fields['vehicle_model'] = vehicleModel;
     request.fields['vehicle_year'] = vehicleYear;
     request.fields['use_ai'] = useAi ? 'true' : 'false';
+    if (userUid != null && userUid.isNotEmpty) {
+      request.fields['user_uid'] = userUid;
+    }
 
     // Send request
     var response = await request.send();

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 
@@ -64,6 +65,10 @@ class DamageDetectionService {
       request.fields['vehicle_model'] = vehicleModel.trim();
       request.fields['vehicle_year'] = vehicleYear.trim();
       request.fields['use_ai'] = useAi ? 'true' : 'false';
+      final userUid = FirebaseAuth.instance.currentUser?.uid?.trim();
+      if (userUid != null && userUid.isNotEmpty) {
+        request.fields['user_uid'] = userUid;
+      }
     }
 
     final streamedResponse = await request.send();

@@ -4,6 +4,7 @@ import '../models/live_data_model.dart';
 import 'live_data_service.dart';
 import 'database_service.dart';
 import 'package:http/http.dart' as http;
+import 'guardian_firebase.dart';
 
 class AlertMonitoringService {
   static final AlertMonitoringService _instance =
@@ -13,7 +14,7 @@ class AlertMonitoringService {
 
   final LiveDataService _liveDataService = LiveDataService();
   final DatabaseService _databaseService = DatabaseService();
-  final DatabaseReference _historyRef = FirebaseDatabase.instance.ref(
+  DatabaseReference get _historyRef => GuardianFirebase.database.ref(
     'history',
   );
 

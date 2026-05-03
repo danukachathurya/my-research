@@ -108,7 +108,7 @@ That's it! The server will start without Firebase.
 
 ```cmd
 cd "e:\research\gamage new\data"
-set GEMINI_API_KEY=AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo
+set GEMINI_API_KEY=AIzaSyAo0pDg4lfNzVolA0LRhEIh4LSwymTJwC8
 set ENABLE_FIREBASE=0
 python api_server.py
 ```

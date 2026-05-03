@@ -324,7 +324,7 @@ ENABLE_FIREBASE=0  # Set to 1 to enable Firebase
 ### API Key Setup
 Already configured in `run_server.bat`:
 ```batch
-set GEMINI_API_KEY=AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo
+set GEMINI_API_KEY=AIzaSyAo0pDg4lfNzVolA0LRhEIh4LSwymTJwC8
 ```
 
 ---
