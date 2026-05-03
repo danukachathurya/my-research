@@ -6,6 +6,7 @@ import '../common/insurance_claim_service.dart';
 import '../vehicle_damage/final_report_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
 
 // ─── InsurerDashboardPage ─────────────────────────────────────────────────────
@@ -294,6 +295,31 @@ class _InsurerDashboardPageState extends State<InsurerDashboardPage> {
     );
   }
 
+  Future<void> _openMaps(BuildContext context, Map<String, dynamic> claim) async {
+    final loc = claim['location'] as Map;
+    final lat = loc['latitude'];
+    final lng = loc['longitude'];
+    final mapsUrl = loc['maps_url']?.toString().trim() ?? '';
+
+    final Uri? uri = mapsUrl.isNotEmpty
+        ? Uri.tryParse(mapsUrl)
+        : (lat != null && lng != null
+              ? Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng')
+              : null);
+
+    if (uri == null) return;
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open Google Maps'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+  }
+
   String _getVehicleLabel(Map<String, dynamic> claim) {
     try {
       final v = claim['vehicle'];
@@ -388,6 +414,7 @@ class _InsurerDashboardPageState extends State<InsurerDashboardPage> {
               if (_hasLocation(claim)) ...[
                 const SizedBox(height: 4),
                 GestureDetector(
+                  onTap: () => _openMaps(context, claim),
                   onLongPress: () => _copyMapsUrl(context, claim),
                   child: Row(
                     children: [
