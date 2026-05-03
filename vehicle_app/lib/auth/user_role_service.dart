@@ -35,14 +35,37 @@ class UserRoleService {
   /// Get user profile by UID
   static Future<Map<String, dynamic>?> getUserProfile(String uid) async {
     try {
+      final normalizedUid = uid.trim();
+      if (normalizedUid.isEmpty) return null;
+
       final snapshot = await _firestore
           .collection(_usersCollection)
-          .doc(uid)
+          .doc(normalizedUid)
           .get();
 
-      if (!snapshot.exists) return null;
+      if (snapshot.exists) {
+        return snapshot.data();
+      }
 
-      return snapshot.data();
+      final byUidField = await _usersRef
+          .where('uid', isEqualTo: normalizedUid)
+          .limit(1)
+          .get();
+
+      if (byUidField.docs.isNotEmpty) {
+        return byUidField.docs.first.data();
+      }
+
+      final byAssignedInsurerId = await _usersRef
+          .where('assignedInsurerId', isEqualTo: normalizedUid)
+          .limit(1)
+          .get();
+
+      if (byAssignedInsurerId.docs.isNotEmpty) {
+        return byAssignedInsurerId.docs.first.data();
+      }
+
+      return null;
     } catch (e) {
       print("Firestore error: $e");
       return null;
