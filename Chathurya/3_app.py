@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 from firebase_admin import credentials, firestore
 from google.api_core.exceptions import DeadlineExceeded as FirestoreDeadlineExceeded
 from google.api_core.exceptions import ServiceUnavailable as FirestoreServiceUnavailable
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 import torch.nn as nn
 from torchvision import transforms, models
@@ -246,7 +247,7 @@ def get_user_profile_by_uid(uid: str) -> Optional[Dict[str, object]]:
 
     uid_docs = (
         db.collection("users")
-        .where("uid", "==", normalized_uid)
+        .where(filter=FieldFilter("uid", "==", normalized_uid))
         .limit(1)
         .stream()
     )
@@ -1450,7 +1451,9 @@ def list_insurers():
 
 @app.get("/insurers/{insurer_id}/claims")
 def insurer_claims(insurer_id: str):
-    q = db.collection("claims").where("insurer_id", "==", insurer_id).stream()
+    q = db.collection("claims").where(
+        filter=FieldFilter("insurer_id", "==", insurer_id)
+    ).stream()
     claims = [enrich_claim_with_customer({"id": d.id, **d.to_dict()}) for d in q]
     claims.sort(key=lambda c: c.get("sent_at", ""), reverse=True)
     return claims
@@ -1463,7 +1466,7 @@ def list_claims(owner_uid: Optional[str] = None):
     if normalized_owner_uid:
         docs = (
             db.collection("claims")
-            .where("owner_uid", "==", normalized_owner_uid)
+            .where(filter=FieldFilter("owner_uid", "==", normalized_owner_uid))
             .stream()
         )
         claims = [enrich_claim_with_customer({"id": d.id, **d.to_dict()}) for d in docs]
