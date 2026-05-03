@@ -40,7 +40,7 @@ start_server_simple.bat
 **Option B: Command line:**
 ```cmd
 cd "e:\research\gamage new\data"
-set GEMINI_API_KEY=AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo
+set GEMINI_API_KEY=AIzaSyAo0pDg4lfNzVolA0LRhEIh4LSwymTJwC8
 python api_server.py
 ```
 
@@ -221,7 +221,7 @@ pip install -r requirements.txt
 
 **Error: "Gemini API key not found"**
 ```cmd
-set GEMINI_API_KEY=AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo
+set GEMINI_API_KEY=AIzaSyAo0pDg4lfNzVolA0LRhEIh4LSwymTJwC8
 ```
 
 **Error: "Dataset not found"**

@@ -2,7 +2,7 @@
 GEMINI API SETUP - SUCCESS!
 ======================================================================
 
-✓ API Key: AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo
+✓ API Key: AIzaSyAo0pDg4lfNzVolA0LRhEIh4LSwymTJwC8
 ✓ Model: gemini-2.5-flash
 ✓ Connection: WORKING
 ✓ Text Generation: WORKING

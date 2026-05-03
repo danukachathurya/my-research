@@ -2,10 +2,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart';
 import '../models/user_model.dart';
+import 'guardian_firebase.dart';
 
 class AuthService {
-  final FirebaseAuth _firebaseAuth = FirebaseAuth.instance;
-  final FirebaseDatabase _database = FirebaseDatabase.instance;
+  FirebaseAuth get _firebaseAuth => GuardianFirebase.auth;
+  FirebaseDatabase get _database => GuardianFirebase.database;
 
   // Get current user
   User? get currentUser => _firebaseAuth.currentUser;
@@ -28,6 +29,8 @@ class AuthService {
     String? photoBase64,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
+
       // Create Firebase Auth user
       UserCredential userCredential = await _firebaseAuth
           .createUserWithEmailAndPassword(email: email, password: password);
@@ -74,10 +77,12 @@ class AuthService {
   }) async {
     FirebaseApp? secondaryApp;
     try {
+      await GuardianFirebase.ensureInitialized();
+
       // Initialize secondary app to create user without signing out current user
       secondaryApp = await Firebase.initializeApp(
-        name: 'Secondary',
-        options: Firebase.app().options,
+        name: 'GuardianLinkSecondary-${DateTime.now().microsecondsSinceEpoch}',
+        options: GuardianFirebase.app.options,
       );
 
       UserCredential userCredential = await FirebaseAuth.instanceFor(
@@ -122,6 +127,8 @@ class AuthService {
     required String password,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
+
       UserCredential userCredential = await _firebaseAuth
           .signInWithEmailAndPassword(email: email, password: password);
 
@@ -145,6 +152,7 @@ class AuthService {
   // Get user by ID
   Future<UserModel?> getUserById(String userId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('users/$userId').get();
       if (snapshot.exists) {
         return UserModel.fromJson(snapshot.value as Map<dynamic, dynamic>);
@@ -165,6 +173,7 @@ class AuthService {
     String? photoUrl,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       Map<String, dynamic> updates = {
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
       };
@@ -192,6 +201,7 @@ class AuthService {
     required UserType userType,
   }) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       Map<String, dynamic> updates = {
         'userType': userType.toString().split('.').last,
         'updatedAt': DateTime.now().millisecondsSinceEpoch,
@@ -206,6 +216,7 @@ class AuthService {
   // Logout user
   Future<void> logout() async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _firebaseAuth.signOut();
     } catch (e) {
       throw Exception('Logout failed: $e');
@@ -215,6 +226,7 @@ class AuthService {
   // Reset password
   Future<void> resetPassword(String email) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       await _firebaseAuth.sendPasswordResetEmail(email: email);
     } catch (e) {
       throw Exception('Failed to send reset email: $e');
@@ -224,6 +236,7 @@ class AuthService {
   // Delete user account
   Future<void> deleteUserAccount(String userId) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       // Delete user document from Realtime Database
       await _database.ref('users/$userId').remove();
 
@@ -237,6 +250,7 @@ class AuthService {
   // Get all users of a specific type (for admin)
   Future<List<UserModel>> getUsersByType(UserType userType) async {
     try {
+      await GuardianFirebase.ensureInitialized();
       final snapshot = await _database.ref('users').get();
       List<UserModel> users = [];
 

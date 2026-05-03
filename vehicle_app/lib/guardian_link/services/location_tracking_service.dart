@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:geolocator/geolocator.dart';
 
+import 'guardian_firebase.dart';
+
 class LocationTrackingService {
   static final LocationTrackingService _instance =
       LocationTrackingService._internal();
@@ -9,7 +11,7 @@ class LocationTrackingService {
   LocationTrackingService._internal();
 
   StreamSubscription<Position>? _positionStreamSubscription;
-  final DatabaseReference _liveDataRef = FirebaseDatabase.instance.ref(
+  DatabaseReference get _liveDataRef => GuardianFirebase.database.ref(
     'liveData',
   );
   String? _currentUserId;

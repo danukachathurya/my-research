@@ -1453,7 +1453,7 @@ def main():
     # Check if API keys are set
     if config.GOOGLE_MAPS_API_KEY == 'AIzaSyA4WKCnwVoO_AddbRreuViqH1cNsNSZ1hs':
         print("⚠️  Warning: Please set your Google Maps API key in Config class")
-    if config.GEMINI_API_KEY == 'AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo':
+    if config.GEMINI_API_KEY == 'AIzaSyAo0pDg4lfNzVolA0LRhEIh4LSwymTJwC8':
         print("⚠️  Warning: Please set your Gemini API key in Config class")
     
     # Initialize system

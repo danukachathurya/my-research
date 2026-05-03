@@ -20,7 +20,7 @@ echo ======================================================================
 echo.
 
 REM Set Gemini API Key
-set GEMINI_API_KEY=AIzaSyDYCz9POfhc6pBuEd-wX1IYOu4sBW3H8Yo
+set GEMINI_API_KEY=AIzaSyAo0pDg4lfNzVolA0LRhEIh4LSwymTJwC8
 
 REM Disable Firebase (testing mode)
 set ENABLE_FIREBASE=0

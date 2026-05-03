@@ -4,13 +4,14 @@ import 'dart:developer' as developer;
 import 'package:firebase_database/firebase_database.dart';
 
 import '../models/live_data_model.dart';
+import 'guardian_firebase.dart';
 
 class LiveDataService {
   static final LiveDataService _instance = LiveDataService._internal();
   factory LiveDataService() => _instance;
   LiveDataService._internal();
 
-  final DatabaseReference _liveDataRef = FirebaseDatabase.instance.ref(
+  DatabaseReference get _liveDataRef => GuardianFirebase.database.ref(
     'liveData',
   );
   final Map<String, StreamSubscription<DatabaseEvent>> _subscriptions = {};

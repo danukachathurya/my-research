@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'auth/login_screen.dart';
+import '../services/guardian_firebase.dart';
 import '../widgets/app_logo.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -18,6 +19,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
   Future<void> _navigateToLogin() async {
     await Future.delayed(const Duration(seconds: 2));
+    await GuardianFirebase.ensureInitialized();
     if (mounted) {
       Navigator.pushReplacement(
         context,
