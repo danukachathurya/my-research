@@ -234,6 +234,90 @@ def infer_reported_affected_part(
 
     return default_affected_part
 
+
+def get_user_profile_by_uid(uid: str) -> Optional[Dict[str, object]]:
+    normalized_uid = (uid or "").strip()
+    if not normalized_uid:
+        return None
+
+    direct_doc = db.collection("users").document(normalized_uid).get()
+    if direct_doc.exists:
+        return direct_doc.to_dict()
+
+    uid_docs = (
+        db.collection("users")
+        .where("uid", "==", normalized_uid)
+        .limit(1)
+        .stream()
+    )
+    for doc in uid_docs:
+        return doc.to_dict()
+
+    return None
+
+
+def build_customer_snapshot(
+    user_profile: Optional[Dict[str, object]],
+) -> Optional[Dict[str, str]]:
+    if not user_profile:
+        return None
+
+    name = str(
+        user_profile.get("fullName")
+        or user_profile.get("full_name")
+        or user_profile.get("name")
+        or user_profile.get("displayName")
+        or ""
+    ).strip()
+    email = str(
+        user_profile.get("email")
+        or user_profile.get("emailAddress")
+        or ""
+    ).strip()
+    phone = str(
+        user_profile.get("phone")
+        or user_profile.get("phoneNumber")
+        or user_profile.get("phone_number")
+        or user_profile.get("mobile")
+        or ""
+    ).strip()
+
+    snapshot = {
+        "name": name,
+        "email": email,
+        "phone": phone,
+    }
+    if any(snapshot.values()):
+        return snapshot
+    return None
+
+
+def enrich_claim_with_customer(claim: Dict[str, object]) -> Dict[str, object]:
+    enriched_claim = dict(claim)
+    existing_customer = enriched_claim.get("customer")
+    if isinstance(existing_customer, dict):
+        name = str(existing_customer.get("name") or "").strip()
+        email = str(existing_customer.get("email") or "").strip()
+        phone = str(existing_customer.get("phone") or "").strip()
+        if name or email or phone:
+            return enriched_claim
+
+    owner_uid = str(
+        enriched_claim.get("owner_uid")
+        or enriched_claim.get("ownerUid")
+        or enriched_claim.get("user_uid")
+        or enriched_claim.get("userUid")
+        or ""
+    ).strip()
+    if not owner_uid:
+        return enriched_claim
+
+    user_profile = get_user_profile_by_uid(owner_uid)
+    customer_snapshot = build_customer_snapshot(user_profile)
+    if customer_snapshot:
+        enriched_claim["customer"] = customer_snapshot
+    return enriched_claim
+
 # ============================================
 # DAMAGE DETECTION MODEL
 # ============================================
@@ -1195,6 +1279,9 @@ async def assess_damage(
 
         ai_response_dict = response
         claim_image_attachment = build_claim_image_attachment(image_bytes, img_hash)
+        customer_snapshot = build_customer_snapshot(
+            get_user_profile_by_uid((user_uid or "").strip())
+        )
         claim_payload = {
             "vehicle": {
                 "brand": vehicle_brand,
@@ -1208,6 +1295,8 @@ async def assess_damage(
             "ai_result": ai_response_dict,
             "created_at": datetime.utcnow().isoformat(),
         }
+        if customer_snapshot:
+            claim_payload["customer"] = customer_snapshot
 
         # Save assessment to Firestore
         claim_ref = db.collection("claims").document()  # Auto-ID
@@ -1362,7 +1451,7 @@ def list_insurers():
 @app.get("/insurers/{insurer_id}/claims")
 def insurer_claims(insurer_id: str):
     q = db.collection("claims").where("insurer_id", "==", insurer_id).stream()
-    claims = [{"id": d.id, **d.to_dict()} for d in q]
+    claims = [enrich_claim_with_customer({"id": d.id, **d.to_dict()}) for d in q]
     claims.sort(key=lambda c: c.get("sent_at", ""), reverse=True)
     return claims
 
@@ -1377,7 +1466,7 @@ def list_claims(owner_uid: Optional[str] = None):
             .where("owner_uid", "==", normalized_owner_uid)
             .stream()
         )
-        claims = [{"id": d.id, **d.to_dict()} for d in docs]
+        claims = [enrich_claim_with_customer({"id": d.id, **d.to_dict()}) for d in docs]
         claims.sort(key=lambda claim: claim.get("created_at", ""), reverse=True)
         return claims[:50]
 
@@ -1387,14 +1476,14 @@ def list_claims(owner_uid: Optional[str] = None):
         .limit(50)
         .stream()
     )
-    return [{"id": d.id, **d.to_dict()} for d in docs]
+    return [enrich_claim_with_customer({"id": d.id, **d.to_dict()}) for d in docs]
 
 @app.get("/claims/{claim_id}")
 def get_claim(claim_id: str):
     doc = db.collection("claims").document(claim_id).get()
     if not doc.exists:
         raise HTTPException(status_code=404, detail="Claim not found")
-    return {"id": doc.id, **doc.to_dict()}
+    return enrich_claim_with_customer({"id": doc.id, **doc.to_dict()})
 
 @app.patch("/claims/{claim_id}/decision")
 def submit_decision(

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:typed_data';
 import '../common/insurance_claim_service.dart';
+import '../auth/user_role_service.dart';
 import '../vehicle_damage/final_report_page.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
@@ -733,6 +734,8 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
   late final TextEditingController _costController;
   final TextEditingController _notesController = TextEditingController();
   final InsuranceClaimService _insuranceClaimService = InsuranceClaimService();
+  late Map<String, String> _customerDetailsCache;
+  bool _isLoadingCustomerDetails = false;
   bool _isSubmitting = false;
 
   @override
@@ -742,6 +745,8 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
     _costController = TextEditingController(
       text: aiPrice != null ? aiPrice.toStringAsFixed(0) : '',
     );
+    _customerDetailsCache = _customerDetailsFromClaim();
+    _loadCustomerDetails();
   }
 
   @override
@@ -835,6 +840,169 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
       return base64Decode(encoded);
     } catch (_) {
       return null;
+    }
+  }
+
+  Map<String, dynamic>? _asStringMap(dynamic value) {
+    if (value is Map) {
+      return value.map(
+        (key, val) => MapEntry(key.toString(), val),
+      );
+    }
+    return null;
+  }
+
+  String? _firstNonEmptyString(List<dynamic> candidates) {
+    for (final candidate in candidates) {
+      final value = candidate?.toString().trim();
+      if (value != null && value.isNotEmpty) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  Map<String, String> _customerDetailsFromClaim() {
+    final claim = widget.claim;
+    final customer =
+        _asStringMap(claim['customer']) ??
+        _asStringMap(claim['claimant']) ??
+        _asStringMap(claim['owner']) ??
+        _asStringMap(claim['user']) ??
+        _asStringMap(claim['submitted_by']) ??
+        _asStringMap(claim['profile']) ??
+        const <String, dynamic>{};
+
+    return {
+      'name':
+          _firstNonEmptyString([
+            customer['name'],
+            customer['fullName'],
+            customer['full_name'],
+            customer['displayName'],
+            customer['display_name'],
+            claim['customer_name'],
+            claim['fullName'],
+            claim['full_name'],
+            claim['name'],
+          ]) ??
+          'N/A',
+      'email':
+          _firstNonEmptyString([
+            customer['email'],
+            customer['emailAddress'],
+            customer['email_address'],
+            claim['customer_email'],
+            claim['email'],
+          ]) ??
+          'N/A',
+      'phone':
+          _firstNonEmptyString([
+            customer['phone'],
+            customer['phoneNumber'],
+            customer['phone_number'],
+            customer['mobile'],
+            customer['mobileNumber'],
+            customer['contact'],
+            claim['customer_phone'],
+            claim['phone'],
+            claim['phoneNumber'],
+          ]) ??
+          'N/A',
+    };
+  }
+
+  String? _customerUidFromClaim() {
+    final claim = widget.claim;
+    return _firstNonEmptyString([
+      claim['owner_uid'],
+      claim['ownerUid'],
+      claim['user_uid'],
+      claim['userUid'],
+      claim['customer_uid'],
+      claim['customerUid'],
+      claim['uid'],
+      _asStringMap(claim['customer'])?['uid'],
+      _asStringMap(claim['claimant'])?['uid'],
+      _asStringMap(claim['owner'])?['uid'],
+      _asStringMap(claim['user'])?['uid'],
+      _asStringMap(claim['submitted_by'])?['uid'],
+    ]);
+  }
+
+  Map<String, String> _mergeCustomerDetails(
+    Map<String, String> primary,
+    Map<String, String> fallback,
+  ) {
+    return {
+      'name': primary['name'] != null && primary['name'] != 'N/A'
+          ? primary['name']!
+          : (fallback['name'] ?? 'N/A'),
+      'email': primary['email'] != null && primary['email'] != 'N/A'
+          ? primary['email']!
+          : (fallback['email'] ?? 'N/A'),
+      'phone': primary['phone'] != null && primary['phone'] != 'N/A'
+          ? primary['phone']!
+          : (fallback['phone'] ?? 'N/A'),
+    };
+  }
+
+  Future<void> _loadCustomerDetails() async {
+    final claimDetails = _customerDetailsFromClaim();
+    final customerUid = _customerUidFromClaim();
+
+    if (customerUid == null || customerUid.isEmpty) {
+      if (mounted) {
+        setState(() => _customerDetailsCache = claimDetails);
+      }
+      return;
+    }
+
+    setState(() => _isLoadingCustomerDetails = true);
+
+    try {
+      final profile = await UserRoleService.getUserProfile(customerUid);
+      final firestoreDetails = {
+        'name':
+            _firstNonEmptyString([
+              profile?['fullName'],
+              profile?['full_name'],
+              profile?['name'],
+              profile?['displayName'],
+            ]) ??
+            'N/A',
+        'email':
+            _firstNonEmptyString([
+              profile?['email'],
+              profile?['emailAddress'],
+            ]) ??
+            'N/A',
+        'phone':
+            _firstNonEmptyString([
+              profile?['phone'],
+              profile?['phoneNumber'],
+              profile?['phone_number'],
+              profile?['mobile'],
+            ]) ??
+            'N/A',
+      };
+
+      if (!mounted) return;
+      setState(() {
+        _customerDetailsCache = _mergeCustomerDetails(
+          firestoreDetails,
+          claimDetails,
+        );
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _customerDetailsCache = claimDetails;
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingCustomerDetails = false);
+      }
     }
   }
 
@@ -954,6 +1122,7 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
     final damageImage = _getDamageImage();
     final damageImageBytes = _decodeDamageImageBytes(damageImage);
     final claimId = claim['id']?.toString() ?? 'N/A';
+    final customer = _customerDetailsCache;
     final damages =
         (dd['detected_damages'] as List?)?.map((d) => d.toString()).toList() ??
         [];
@@ -1020,6 +1189,44 @@ class _InsurerDecisionSheetState extends State<_InsurerDecisionSheet> {
                         fontSize: 13,
                         fontFamily: 'monospace',
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  _ISection(
+                    icon: Icons.person_outline,
+                    iconColor: Colors.teal[700]!,
+                    title: 'Customer Details',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_isLoadingCustomerDetails) ...[
+                          Row(
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.teal[700],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Loading customer details...',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.grey[700],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                        _kv('Name', customer['name']!),
+                        _kv('Email', customer['email']!),
+                        _kv('Phone', customer['phone']!),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 12),
