@@ -434,7 +434,7 @@ class PriceExplanationAI:
     def __init__(self, api_key: str):
         if GEMINI_AVAILABLE and api_key:
             genai.configure(api_key=api_key)
-            self.model = genai.GenerativeModel('gemini-2.5-pro')
+            self.model = genai.GenerativeModel('gemini-2.5-flash')
         else:
             self.model = None
 
@@ -724,17 +724,24 @@ class ModelLoader:
         reason: Optional[str] = None,
     ) -> dict:
         if self.price_fallback is not None:
-            local_result = self.price_fallback.estimate(
-                vehicle_brand=vehicle_brand,
-                vehicle_model=vehicle_model,
-                vehicle_year=vehicle_year,
-                detected_damages=detected_damages,
-                reference_prices=reference_prices,
-                affected_part=affected_part,
-                reason=reason,
-            )
-            if local_result is not None:
-                return local_result
+            try:
+                local_result = self.price_fallback.estimate(
+                    vehicle_brand=vehicle_brand,
+                    vehicle_model=vehicle_model,
+                    vehicle_year=vehicle_year,
+                    detected_damages=detected_damages,
+                    reference_prices=reference_prices,
+                    affected_part=affected_part,
+                    reason=reason,
+                )
+                if local_result is not None:
+                    return local_result
+            except Exception as exc:
+                print(f"⚠️  Local price fallback failed: {exc}")
+                if reason:
+                    reason = f"{reason} Local price fallback failed: {exc}"
+                else:
+                    reason = f"Local price fallback failed: {exc}"
 
         return build_formula_price_result(
             detected_damages=detected_damages,

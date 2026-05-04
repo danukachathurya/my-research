@@ -808,6 +808,11 @@ class LocalPriceFallbackEngine:
 
         if self.model is None or self.scaler is None:
             return
+        if hasattr(self.model, "set_params"):
+            try:
+                self.model.set_params(n_jobs=1, verbose=0)
+            except Exception:
+                pass
         if not csv_path.exists():
             print(f"Price-model preprocessing CSV not found: {csv_path}")
             return
