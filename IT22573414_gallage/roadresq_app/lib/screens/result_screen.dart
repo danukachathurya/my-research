@@ -343,15 +343,6 @@ class _ResultScreenState extends State<ResultScreen> {
 
                   const SizedBox(height: 20),
 
-                  // Estimated time
-                  _buildInfoRow(
-                    'Estimated Repair Time',
-                    widget.result.damageDetails.estimatedTime,
-                    Icons.access_time,
-                  ),
-
-                  const SizedBox(height: 20),
-
                   // Prevention tips
                   _buildSection(
                     'Prevention Tips',

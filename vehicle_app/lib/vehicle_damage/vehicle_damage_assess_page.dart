@@ -1,9 +1,3 @@
-// lib/vehicle_damage/vehicle_damage_assess_page.dart
-//
-// This is the old `HomePage` class from Flutter app 1's main.dart,
-// renamed to VehicleDamageAssessPage and moved here.
-// Only the class name and import paths change — all logic is identical.
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:http/http.dart' as http;
@@ -14,8 +8,8 @@ import 'dart:convert';
 import 'dart:io';
 import '../common/api_config.dart';
 import '../common/claim_status.dart';
-import 'utils/image_processor.dart'; // ← moved to vehicle_damage/utils/
-import 'insurer_dashboard_page.dart'; // ← moved to vehicle_damage/
+import 'utils/image_processor.dart'; 
+import 'insurer_dashboard_page.dart'; 
 
 class VehicleDamageAssessPage extends StatefulWidget {
   const VehicleDamageAssessPage({super.key});

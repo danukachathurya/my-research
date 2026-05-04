@@ -373,13 +373,6 @@ class _ResultScreenState extends State<ResultScreen> {
       ),
     );
     appendSection(
-      _buildInfoRow(
-        'Estimated Repair Time',
-        details.estimatedTime,
-        Icons.access_time,
-      ),
-    );
-    appendSection(
       _buildSection(
         'Prevention Tips',
         Icons.lightbulb_outline,
