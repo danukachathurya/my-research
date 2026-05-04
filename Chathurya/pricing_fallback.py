@@ -14,47 +14,38 @@ with open(PRICING_POLICY_PATH, encoding="utf-8") as pricing_policy_file:
 PRICING_POLICY_VERSION = str(PRICING_POLICY["version"])
 PARTS_PRICE_INFLATION_FACTOR = float(PRICING_POLICY["parts_price_inflation_factor"])
 SIMPLE_FORMULA_PER_DAMAGE_LKR = float(PRICING_POLICY["simple_formula_per_damage_lkr"])
-PAINT_RELEVANT_DAMAGES = {"dent", "scratch", "crack"}
-
+PAINT_RELEVANT_DAMAGES = {
+    str(damage).strip().lower()
+    for damage in (PRICING_POLICY.get("paint_relevant_damages") or [])
+}
 DAMAGE_TO_PART_FAMILIES = {
-    "dent": ["Fender", "Front Bumper", "Front Door", "Rear Door", "Hood/Bonnet"],
-    "scratch": ["Front Bumper", "Fender", "Front Door", "Hood/Bonnet"],
-    "crack": ["Front Bumper", "Front Windshield"],
-    "glass shatter": ["Front Windshield"],
-    "lamp broken": ["Headlight", "Tail Light"],
-    "tire flat": ["Alloy Wheel (Single)"],
+    str(damage).strip().lower(): [str(family) for family in families]
+    for damage, families in (PRICING_POLICY.get("damage_to_part_families") or {}).items()
 }
-
 AFFECTED_PART_FAMILY_ORDER = {
-    "headlight": ["Headlight", "Front Bumper", "Fender", "Hood/Bonnet"],
-    "tail_light": ["Tail Light", "Front Bumper", "Rear Door", "Fender"],
-    "lighting": ["Headlight", "Tail Light", "Front Bumper", "Fender"],
-    "corner_impact": [
-        "Headlight",
-        "Tail Light",
-        "Front Bumper",
-        "Fender",
-        "Front Door",
-        "Rear Door",
-        "Hood/Bonnet",
-    ],
-    "bumper": ["Front Bumper", "Fender", "Headlight", "Tail Light", "Hood/Bonnet"],
-    "body_panel": ["Fender", "Front Bumper", "Front Door", "Rear Door", "Hood/Bonnet"],
-    "windshield": ["Front Windshield"],
-    "tire": ["Alloy Wheel (Single)"],
+    str(part).strip().lower(): [str(family) for family in families]
+    for part, families in (PRICING_POLICY.get("affected_part_family_order") or {}).items()
 }
-
 DEFAULT_FAMILY_ORDER = [
-    "Headlight",
-    "Front Bumper",
-    "Fender",
-    "Front Door",
-    "Rear Door",
-    "Hood/Bonnet",
-    "Tail Light",
-    "Front Windshield",
-    "Alloy Wheel (Single)",
+    str(family) for family in (PRICING_POLICY.get("default_family_order") or [])
 ]
+DAMAGE_INFERENCE_POLICY = dict(PRICING_POLICY.get("damage_inference") or {})
+REPLACEMENT_FAMILY_CANDIDATES = {
+    str(damage).strip().lower(): {
+        str(key).strip().lower(): [str(family) for family in families]
+        for key, families in options.items()
+    }
+    for damage, options in (PRICING_POLICY.get("replacement_family_candidates") or {}).items()
+}
+REPAIR_FAMILY_PREFERENCES = {
+    str(part).strip().lower(): {
+        "families": [str(family) for family in (config.get("families") or [])],
+        "max_repairs_if_both": int(config.get("max_repairs_if_both", 1)),
+        "max_repairs_default": int(config.get("max_repairs_default", 1)),
+        "fallback_family": str(config.get("fallback_family") or "").strip(),
+    }
+    for part, config in (PRICING_POLICY.get("repair_family_preferences") or {}).items()
+}
 
 REPLACEMENT_PAINT_BY_FAMILY = {
     str(family): float(amount)
@@ -142,19 +133,34 @@ def normalize_affected_part(affected_part: Optional[str]) -> str:
 
 def infer_affected_part(detected_damages: List[str]) -> str:
     normalized_damages = {normalize_damage_label(damage) for damage in detected_damages}
+    default_affected_part = str(DAMAGE_INFERENCE_POLICY.get("default") or "body_panel")
     if not normalized_damages:
-        return "body_panel"
-    if "glass shatter" in normalized_damages:
-        return "windshield"
-    if "tire flat" in normalized_damages:
-        return "tire"
-    if "lamp broken" in normalized_damages:
-        if normalized_damages.intersection({"dent", "scratch", "crack"}):
-            return "corner_impact"
-        return "lighting"
-    if "crack" in normalized_damages:
-        return "bumper"
-    return "body_panel"
+        return default_affected_part
+
+    direct_map = {
+        str(damage).strip().lower(): str(target).strip()
+        for damage, target in (DAMAGE_INFERENCE_POLICY.get("direct_map") or {}).items()
+    }
+    for damage, target in direct_map.items():
+        if damage in normalized_damages:
+            return target or default_affected_part
+
+    special_rules = {
+        str(damage).strip().lower(): dict(rule or {})
+        for damage, rule in (DAMAGE_INFERENCE_POLICY.get("special_rules") or {}).items()
+    }
+    for damage, rule in special_rules.items():
+        if damage not in normalized_damages:
+            continue
+        comparator = {
+            normalize_damage_label(item)
+            for item in (rule.get("with_any_of") or [])
+        }
+        if comparator and normalized_damages.intersection(comparator):
+            return str(rule.get("if_match") or default_affected_part)
+        return str(rule.get("otherwise") or default_affected_part)
+
+    return default_affected_part
 
 
 def summarize_fallback_reason(reason: Optional[str]) -> str:
@@ -340,40 +346,17 @@ def choose_replacement_families(
     affected_key = normalize_affected_part(affected_part)
     available_families = set(family_costs.keys())
     replacements: List[str] = []
+    for damage in normalized_damages:
+        damage_candidates = REPLACEMENT_FAMILY_CANDIDATES.get(damage)
+        if not damage_candidates:
+            continue
 
-    if "lamp broken" in normalized_damages:
-        if affected_key in {"tail_light", "rear_corner"}:
-            preferred_family = choose_family_by_priority(
-                ["Tail Light", "Headlight"],
-                family_costs,
-            )
-        elif affected_key in {"headlight", "front_corner", "corner_impact"}:
-            preferred_family = choose_family_by_priority(
-                ["Headlight", "Tail Light"],
-                family_costs,
-            )
-        else:
-            preferred_family = choose_family_by_priority(
-                ["Tail Light", "Headlight"],
-                family_costs,
-            )
-
+        preferred_candidates = damage_candidates.get(affected_key) or damage_candidates.get(
+            "default",
+            [],
+        )
+        preferred_family = choose_family_by_priority(preferred_candidates, family_costs)
         if preferred_family in available_families:
-            replacements.append(preferred_family)
-
-    if "glass shatter" in normalized_damages:
-        preferred_family = choose_family_by_priority(["Front Windshield"], family_costs)
-        if preferred_family is not None:
-            replacements.append(preferred_family)
-
-    if "tire flat" in normalized_damages:
-        preferred_family = choose_family_by_priority(["Alloy Wheel (Single)"], family_costs)
-        if preferred_family is not None:
-            replacements.append(preferred_family)
-
-    if "crack" in normalized_damages:
-        preferred_family = choose_family_by_priority(["Front Bumper"], family_costs)
-        if preferred_family is not None:
             replacements.append(preferred_family)
 
     deduped: List[str] = []
@@ -393,21 +376,17 @@ def choose_repair_families(
         return []
 
     affected_key = normalize_affected_part(affected_part)
-    if affected_key in {"headlight", "front_corner", "corner_impact"}:
-        preferred_families = ["Front Bumper", "Fender", "Hood/Bonnet"]
-        max_repairs = 2 if {"dent", "scratch"}.issubset(normalized_damages) else 1
-    elif affected_key in {"tail_light", "rear_corner", "lighting"}:
-        preferred_families = ["Front Bumper", "Rear Door", "Fender"]
-        max_repairs = 1
-    elif affected_key == "bumper":
-        preferred_families = ["Front Bumper", "Fender"]
-        max_repairs = 1
-    elif affected_key == "body_panel":
-        preferred_families = ["Fender", "Front Bumper", "Front Door", "Rear Door", "Hood/Bonnet"]
-        max_repairs = 1
-    else:
-        preferred_families = ["Front Bumper", "Fender", "Front Door", "Rear Door", "Hood/Bonnet"]
-        max_repairs = 1
+    preference_config = REPAIR_FAMILY_PREFERENCES.get(affected_key) or REPAIR_FAMILY_PREFERENCES.get(
+        "default",
+        {},
+    )
+    preferred_families = list(preference_config.get("families") or [])
+    max_repairs = (
+        int(preference_config.get("max_repairs_if_both", 1))
+        if {"dent", "scratch"}.issubset(normalized_damages)
+        else int(preference_config.get("max_repairs_default", 1))
+    )
+    fallback_family = str(preference_config.get("fallback_family") or "").strip()
 
     repairs: List[str] = []
     for family in preferred_families:
@@ -416,8 +395,13 @@ def choose_repair_families(
         if len(repairs) >= max_repairs:
             break
 
-    if not repairs and "Front Bumper" in available_families and "Front Bumper" not in replacement_families:
-        repairs.append("Front Bumper")
+    if (
+        not repairs
+        and fallback_family
+        and fallback_family in available_families
+        and fallback_family not in replacement_families
+    ):
+        repairs.append(fallback_family)
 
     return repairs
 
