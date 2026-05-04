@@ -14,6 +14,28 @@ class RoadResqResultHeaderCard extends StatelessWidget {
     required this.icon,
   });
 
+  String get _severityLabel {
+    final score = result.severityScore;
+    if (score >= 4) {
+      return 'High';
+    }
+    if (score >= 2) {
+      return 'Medium';
+    }
+    return 'Low';
+  }
+
+  Color get _severityColor {
+    switch (_severityLabel) {
+      case 'High':
+        return Colors.red;
+      case 'Medium':
+        return Colors.orange;
+      default:
+        return Colors.green;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final extraDamages = result.detectedDamages
@@ -72,8 +94,8 @@ class RoadResqResultHeaderCard extends StatelessWidget {
               runSpacing: 10,
               children: [
                 RoadResqSectionChip(
-                  text: 'Severity ${result.severityScore}/5',
-                  color: Colors.orange,
+                  text: 'Severity $_severityLabel',
+                  color: _severityColor,
                 ),
               ],
             ),
